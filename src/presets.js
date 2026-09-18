@@ -7,8 +7,34 @@ export const INKS = [
   { name: 'Forest green', color: '#3c5142', pigments: ['#a1af70', '#5b9b9f', '#929767'] },
 ];
 
+export const MAX_PIGMENTS = 6;
+
 export function makePigments(colors) {
-  return colors.map((color, i) => ({ color, mobility: [1.02,.65,.36][i], spread: [.18,.42,.34][i], opacity: [.76,.60,.58][i], saturation: 1, direction: 0 }));
+  return colors.slice(0, MAX_PIGMENTS).map((color, i) => ({ color, mobility: [1.02,.65,.36,.27,.19,.12][i], spread: [.18,.42,.34][i%3], opacity: [.76,.60,.58][i%3], saturation: 1, direction: 0 }));
+}
+
+export function hexToHsl(hex) {
+  const [r,g,b] = [1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255);
+  const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min, l=(max+min)/2;
+  const h=d===0 ? 0 : max===r ? ((g-b)/d+6)%6 : max===g ? (b-r)/d+2 : (r-g)/d+4;
+  return { h:h*60, s:d===0 ? 0 : d/(1-Math.abs(2*l-1))*100, l:l*100 };
+}
+
+export function hslToHex({h,s,l}) {
+  s/=100; l/=100;
+  const a=s*Math.min(l,1-l);
+  return '#'+[0,8,4].map(n=>{
+    const k=(n+h/30)%12;
+    return Math.round(255*(l-a*Math.max(-1,Math.min(k-3,9-k,1)))).toString(16).padStart(2,'0');
+  }).join('');
+}
+
+export function mixedInk(pigments) {
+  return '#'+[1,3,5].map(channel=>Math.round(pigments.reduce((sum,p)=>sum+parseInt(p.color.slice(channel,channel+2),16),0)/pigments.length*.64).toString(16).padStart(2,'0')).join('');
+}
+
+export function variationSeeds(seed) {
+  return Array.from({length:10},(_,i)=>1000+((seed-1000+(i+1)*7919)%9000+9000)%9000);
 }
 
 export function initialState() {
@@ -17,7 +43,9 @@ export function initialState() {
     pigments: makePigments(INKS[0].pigments), mode: 'radial', direction: 90,
     amount: .92, separation: .90, fiber: .58, grain: .34, retention: .96,
     progress: .88, seed: 2847, layers: [true,true,true], drops: [],
-    text: 'a', keepSource: true, paths: [], imported: null,
+    text: 'a', keepSource: true, paths: [], imported: null, importName: '', importScale: 1,
+    randomness: 1, speed: 1, sourceRandomness: 0,
+    marks: [], offset: { x: 0, y: 0 }, generated: false,
   };
 }
 

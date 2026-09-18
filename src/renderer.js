@@ -10,10 +10,13 @@ in vec2 uv;
 out vec4 fragColor;
 uniform vec2 resolution;
 uniform float seed, size, stroke, amount, separation, fiber, grain, progress, direction, retention;
-uniform int shape, mode, dropCount;
+uniform float randomness, speed, sourceRandomness;
+uniform vec2 sourceOffset;
+uniform int shape, mode, dropCount, pigmentCount;
+uniform bool hasMarks;
 uniform vec3 ink, layers;
-uniform vec4 pigment0, pigment1, pigment2;
-uniform vec4 settings0, settings1, settings2;
+uniform vec4 pigments[6];
+uniform vec4 settings[6];
 uniform vec3 drops[8];
 uniform sampler2D maskTexture, sourceTexture;
 uniform bool keepSource, transparent;
@@ -37,14 +40,16 @@ vec2 readMask(vec2 p) {
   ivec2 i = ivec2(floor(t));
   vec2 f = fract(t);
   ivec2 mx = ivec2(767);
-  return mix(mix(texelFetch(maskTexture, clamp(i, ivec2(0), mx), 0).rg, texelFetch(maskTexture, clamp(i + ivec2(1,0), ivec2(0), mx), 0).rg, f.x), mix(texelFetch(maskTexture, clamp(i + ivec2(0,1), ivec2(0), mx), 0).rg, texelFetch(maskTexture, clamp(i + ivec2(1,1), ivec2(0), mx), 0).rg, f.x), f.y);
+  vec2 value = mix(mix(texelFetch(maskTexture, clamp(i, ivec2(0), mx), 0).rg, texelFetch(maskTexture, clamp(i + ivec2(1,0), ivec2(0), mx), 0).rg, f.x), mix(texelFetch(maskTexture, clamp(i + ivec2(0,1), ivec2(0), mx), 0).rg, texelFetch(maskTexture, clamp(i + ivec2(1,1), ivec2(0), mx), 0).rg, f.x), f.y);
+  float exterior = length(p-clamp(p,0.,1.));
+  return exterior>0. ? vec2(max(value.r,0.)+exterior,0.) : value;
 }
 float segment(vec2 p, vec2 a, vec2 b) {
   vec2 pa = p-a, ba=b-a;
   return length(pa-ba*clamp(dot(pa,ba)/dot(ba,ba),0.,1.));
 }
-float sdf(vec2 p) {
-  vec2 q = p - .5;
+float baseSdf(vec2 p) {
+  vec2 q = p - .5 - sourceOffset;
   float r = size / 6000.;
   float w = stroke / 6000.;
   if(shape == 0) return length(q) - r * .28;
@@ -63,8 +68,21 @@ float sdf(vec2 p) {
   }
   return readMask(p).r;
 }
+vec2 sourcePosition(vec2 p) {
+  vec2 local=p-sourceOffset;
+  return p + (vec2(noise(local*45.+seed),noise(local*45.+seed+53.))-.5)*.025*sourceRandomness;
+}
+bool baseDominates(vec2 p) {
+  vec2 s=sourcePosition(p);
+  return !hasMarks || baseSdf(s)<=readMask(s).r;
+}
+float sdf(vec2 p) {
+  vec2 s=sourcePosition(p);
+  float d=baseSdf(s);
+  return hasMarks ? min(d,readMask(s).r) : d;
+}
 float transportDistance(vec2 p) {
-  if(shape == 3) return length(p-.5) - size / 6000. - stroke / 6000.;
+  if(shape == 3 && baseDominates(p)) return length(sourcePosition(p)-.5-sourceOffset) - size / 6000. - stroke / 6000.;
   return sdf(p);
 }
 vec3 deposit(vec3 color, vec3 pigment, float density) {
@@ -89,7 +107,7 @@ float paperPores(vec2 p) {
   return clamp(.22+filaments+noise(p*540.+seed)*.27,0.,1.);
 }
 vec2 sourceNormal(vec2 p) {
-  if(shape==0 || shape==2 || shape==3) return normalize(p-.5+vec2(.00001));
+  if((shape==0 || shape==2 || shape==3) && baseDominates(p) && sourceRandomness==0.) return normalize(p-.5-sourceOffset+vec2(.00001));
   float e=.001;
   return normalize(vec2(sdf(p+vec2(e,0))-sdf(p-vec2(e,0)), sdf(p+vec2(0,e))-sdf(p-vec2(0,e)))+vec2(.00001));
 }
@@ -100,7 +118,7 @@ float elution(float distance, float center, float width) {
 }
 void main() {
   vec2 p = vec2(uv.x, 1.-uv.y);
-  vec2 q = p-.5;
+  vec2 q = sourcePosition(p)-.5-sourceOffset;
   float originalD = sdf(p);
   vec2 normal = sourceNormal(p);
   vec2 sourcePoint = p - normal*max(transportDistance(p),0.);
@@ -109,7 +127,7 @@ void main() {
   float permeability = .82 + fbm(sourcePoint*34.+seed*.13)*.36;
   float channels = noise((sourcePoint+warp*.018)*185.+seed)-.5;
   float fiberDisplacement = (pores-.5)*.003 + channels*.004;
-  float irregular = (fbm((p+warp*.01)*43.+seed)-.5)*.014;
+  float irregular = (fbm((p+warp*.01)*43.+seed)-.5)*.014*randomness;
   float moisture = 0.;
   vec2 waterFlow = vec2(0);
   for(int i=0; i<8; i++) {
@@ -123,16 +141,19 @@ void main() {
     waterFlow += normalize(v+vec2(.0001))*wet*.032;
   }
   float t = clamp(progress+moisture*.18,0.,1.5);
-  float transport = amount*.162*t;
+  float transport = amount*.162*t*speed;
   float particles = hash(floor(p*3000.)+seed);
   float clusters = noise(p*620.+seed*3.);
   float grainContrast = grain*sqrt(min(1.,resolution.x/3000.));
   float deposition = 1. + grainContrast*((particles-.5)*.52+(clusters-.5)*.42);
   float alphaSum = 0.;
   vec3 color = vec3(1.);
-  for(int i=0; i<3; i++) {
-    vec4 pig = i==0 ? pigment0 : (i==1 ? pigment1 : pigment2);
-    vec4 cfg = i==0 ? settings0 : (i==1 ? settings1 : settings2);
+  float opacitySum=0.;
+  for(int i=0; i<6; i++) {
+    if(i>=pigmentCount) break;
+    vec4 pig = pigments[i];
+    vec4 cfg = settings[i];
+    opacitySum+=cfg.y;
     float mobility = pig.a;
     float spread = cfg.x;
     float opacity = cfg.y;
@@ -178,7 +199,7 @@ void main() {
     float concentration = opacity*deposition*paperAffinity*depletion*smoothstep(.005,.065,t);
     density*=concentration;
     dilute*=concentration;
-    if(shape==3 && mode==0) {
+    if(shape==3 && mode==0 && baseDominates(sampleP)) {
       float exterior=smoothstep(-.002,.003,length(q)-size/6000.+stroke/6000.);
       density*=exterior;
       dilute*=exterior;
@@ -195,15 +216,18 @@ void main() {
   float aa=max(1.25/resolution.x,.0012);
   float original=1.-smoothstep(-aa,aa,originalD+edge);
   vec3 inkColor=ink;
-  if(shape==6 || shape==7 || shape==8) {
-    original*=readMask(p).g;
-    if(shape==8 && keepSource) inkColor=texture(sourceTexture,vec2(p.x,1.-p.y)).rgb;
+  if(shape>=6) {
+    original*=readMask(sourcePosition(p)).g;
+    if(shape==8 && keepSource) {
+      vec2 s=sourcePosition(p);
+      inkColor=texture(sourceTexture,vec2(s.x,1.-s.y)).rgb;
+    }
   }
   float carrierD=transportDistance(p-waterFlow*.2);
   if(mode==1) carrierD=sdf(p);
   float carrier=exp(-max(carrierD,0.)/max(.0003,transport*.125));
   if(mode==0) carrier*=smoothstep(-.002,.001,carrierD);
-  float solubleInk=(settings0.y+settings1.y+settings2.y)/1.94;
+  float solubleInk=opacitySum/(float(pigmentCount)*1.94/3.);
   carrier*=.36*solubleInk*min(t*4.,1.)*deposition*layers.y;
   color=deposit(color,inkColor,carrier);
   alphaSum+=carrier;
@@ -217,7 +241,7 @@ void main() {
 }
 `;
 
-export const SHAPES = ['dot', 'line', 'circle', 'ring', 'arc', 'polygon', 'text', 'freehand', 'import'];
+export const SHAPES = ['dot', 'line', 'circle', 'ring', 'arc', 'polygon', 'text', 'freehand', 'import', 'composition'];
 
 export function hexToRgb(hex) {
   return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
@@ -251,7 +275,7 @@ export class ChromatographyRenderer {
     gl.deleteShader(fs);
     if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(this.program));
     gl.useProgram(this.program);
-    const buffer = gl.createBuffer();
+    const buffer = this.buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
     const pos = gl.getAttribLocation(this.program, 'position');
@@ -283,7 +307,7 @@ export class ChromatographyRenderer {
     return this.uniforms[name];
   }
 
-  setMask(canvas) {
+  setMask(canvas, sourceCanvas = canvas, alphaOnly = false) {
     const gl = this.gl;
     const n = 768;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -293,7 +317,7 @@ export class ChromatographyRenderer {
     const alphas = new Float32Array(n*n);
     for (let i=0; i<n*n; i++) {
       const luminance = Math.min(data[i*4], data[i*4+1], data[i*4+2]) / 255;
-      alphas[i] = data[i*4+3] / 255 * (1-luminance);
+      alphas[i] = data[i*4+3] / 255 * (alphaOnly ? 1 : 1-luminance);
       inside[i] = alphas[i] > .04 ? 0 : n;
       outside[i] = alphas[i] > .04 ? n : 0;
     }
@@ -310,7 +334,7 @@ export class ChromatographyRenderer {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D,this.source);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
-    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,canvas);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,sourceCanvas);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
   }
 
@@ -319,7 +343,7 @@ export class ChromatographyRenderer {
     if(this.canvas.width !== resolution) this.canvas.width = this.canvas.height = resolution;
     gl.viewport(0,0,resolution,resolution);
     gl.useProgram(this.program);
-    const scalar = { seed:state.seed, size:state.size, stroke:state.stroke, amount:state.amount, separation:state.separation, fiber:state.fiber, grain:state.grain, progress:state.progress, direction:state.direction*Math.PI/180, retention:state.retention };
+    const scalar = { seed:state.seed, size:state.size, stroke:state.stroke, amount:state.amount, separation:state.separation, fiber:state.fiber, grain:state.grain, progress:state.progress, direction:state.direction*Math.PI/180, retention:state.retention, randomness:state.randomness, speed:state.speed, sourceRandomness:state.sourceRandomness };
     Object.entries(scalar).forEach(([k,v]) => gl.uniform1f(this.location(k),v));
     gl.uniform2f(this.location('resolution'),resolution,resolution);
     gl.uniform1i(this.location('shape'),SHAPES.indexOf(state.shape));
@@ -328,16 +352,30 @@ export class ChromatographyRenderer {
     gl.uniform1i(this.location('transparent'),transparent ? 1 : 0);
     gl.uniform3fv(this.location('ink'),hexToRgb(state.ink));
     gl.uniform3fv(this.location('layers'),state.layers.map(Number));
+    gl.uniform2f(this.location('sourceOffset'),state.offset.x,state.offset.y);
+    gl.uniform1i(this.location('hasMarks'),state.marks.length ? 1 : 0);
+    gl.uniform1i(this.location('pigmentCount'),state.pigments.length);
+    const pigmentData = new Float32Array(24), settingsData = new Float32Array(24);
     state.pigments.forEach((pig,i) => {
-      gl.uniform4fv(this.location(`pigment${i}`),[...hexToRgb(pig.color),pig.mobility]);
-      gl.uniform4fv(this.location(`settings${i}`),[pig.spread,pig.opacity,pig.saturation,pig.direction*Math.PI/180]);
+      pigmentData.set([...hexToRgb(pig.color),pig.mobility],i*4);
+      settingsData.set([pig.spread,pig.opacity,pig.saturation,pig.direction*Math.PI/180],i*4);
     });
+    gl.uniform4fv(this.location('pigments[0]'),pigmentData);
+    gl.uniform4fv(this.location('settings[0]'),settingsData);
     const drops = state.drops.slice(-8);
     gl.uniform1i(this.location('dropCount'),drops.length);
     const dropData = new Float32Array(24);
     drops.forEach((drop,i) => dropData.set([drop.x,drop.y,drop.age],i*3));
     gl.uniform3fv(this.location('drops[0]'),dropData);
     gl.drawArrays(gl.TRIANGLES,0,6);
+  }
+
+  dispose() {
+    this.gl.deleteTexture(this.mask);
+    this.gl.deleteTexture(this.source);
+    this.gl.deleteBuffer(this.buffer);
+    this.gl.deleteProgram(this.program);
+    this.gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 }
 
