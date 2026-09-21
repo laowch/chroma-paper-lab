@@ -263,7 +263,7 @@ test('water defaults use independent centered placement and visible markers', ()
   assert.equal(first.dropPlacement, 'center');
   assert.deepEqual(first.dropPosition, { x: .5, y: .5 });
   assert.equal(first.showDropMarkers, true);
-  assert.equal(first.inkIndex, 0);
+  assert.equal(first.ink, '#282925');
   first.dropPosition.x = 0;
   first.drops.push({ x: 0, y: 0, age: 0 });
   assert.deepEqual(second.dropPosition, { x: .5, y: .5 });

@@ -64,8 +64,9 @@ test('default pigments pair a narrow outer front with broader inner bands', () =
 
 test('the initial ring and Quiet bloom use the same calibrated geometry', () => {
   const state = initialState();
+  const preset = PRESETS.find(preset => preset.name === 'Quiet bloom');
   for (const key of ['shape', 'seed', 'mode', 'size', 'stroke', 'amount', 'inkIndex']) {
-    assert.equal(state[key], PRESETS[0][key], key);
+    assert.equal(state[key], preset[key], key);
   }
 });
 
@@ -121,7 +122,7 @@ test('all three original pigment calibrations remain unchanged for every ink', (
 test('initial state retains the calibrated geometry and diffusion defaults', () => {
   const state = initialState();
   const defaults = {
-    shape: 'ring', size: 760, stroke: 23, ink: '#282925', inkIndex: 0,
+    shape: 'ring', size: 760, stroke: 23, ink: '#282925', inkIndex: INKS.findIndex(ink => ink.name === 'Carbon black'),
     mode: 'radial', direction: 90, amount: .92, separation: .90,
     fiber: .58, grain: .34, retention: .96, progress: .88, seed: 2847,
     layers: [true, true, true], drops: [], text: 'a', keepSource: true, paths: [], imported: null,
@@ -243,14 +244,43 @@ test('imported texture filtering preserves premultiplied color and restores uplo
   ]);
 });
 
-test('reference palettes extend the existing inks without changing their indices', () => {
-  assert.deepEqual(INKS.slice(0, 6).map(ink => ink.name), ['Carbon black', 'Midnight blue', 'Burnt umber', 'Aubergine', 'Persimmon', 'Forest green']);
-  assert.deepEqual(INKS.slice(6).map(ink => ink.pigments), [
+test('existing palettes keep their colors and relative order after the poster palettes', () => {
+  assert.deepEqual(INKS.slice(3, 9).map(ink => ink.name), ['Carbon black', 'Midnight blue', 'Burnt umber', 'Aubergine', 'Persimmon', 'Forest green']);
+  assert.deepEqual(INKS.slice(9).map(ink => ink.pigments), [
     ['#ff3864', '#1888ff', '#ffbd2e'],
     ['#0a2a8a', '#ff4ca5', '#31d9c3'],
     ['#6320ee', '#f72585', '#4cc9f0'],
     ['#101010', '#2f68ff', '#ff5d20'],
     ['#00543d', '#ee7b30', '#992f73'],
   ]);
-  for (const palette of INKS.slice(6)) assert.equal(palette.color, mixedInk(makePigments(palette.pigments)));
+  for (const palette of INKS.slice(9)) assert.equal(palette.color, mixedInk(makePigments(palette.pigments)));
+});
+
+test('three poster palettes lead the ink list with distinct source and diffusion colors', () => {
+  assert.equal(INKS.length, 14);
+  assert.deepEqual(INKS.slice(0, 3), [
+    { name: 'Cyan nocturne', color: '#181922', pigments: ['#61518b', '#49b9c6', '#edf0d5'] },
+    { name: 'Sulfur halo', color: '#39343e', pigments: ['#e6ca73', '#aac68d', '#5b566f'] },
+    { name: 'Copper patina', color: '#262a28', pigments: ['#ae7f88', '#58bba6', '#454244'] },
+  ]);
+  assert.equal(new Set(INKS.map(ink => ink.name)).size, INKS.length);
+});
+
+test('each poster palette has a leading inspiration demo with reproducible settings', () => {
+  assert.equal(PRESETS.length, 9);
+  assert.deepEqual(PRESETS.slice(0, 3).map(preset => preset.name), ['Cyan eclipse', 'Sulfur halo', 'Patina trace']);
+  assert.deepEqual(PRESETS.slice(0, 3).map(preset => preset.inkIndex), [0, 1, 2]);
+  assert.equal(new Set(PRESETS.slice(0, 3).map(preset => preset.shape)).size, 3);
+  for (const preset of PRESETS.slice(0, 3)) {
+    for (const key of ['size', 'stroke', 'amount', 'separation', 'fiber', 'grain', 'progress', 'seed']) assert.ok(Number.isFinite(preset[key]), `${preset.name}.${key}`);
+    assert.ok(preset.amount > 0 && preset.amount <= 1.5);
+    assert.ok(preset.progress > 0 && preset.progress <= 1.22);
+  }
+});
+
+test('the six original experiments still resolve to their original palettes', () => {
+  assert.deepEqual(PRESETS.slice(3).map(preset => [preset.name, INKS[preset.inkIndex].name]), [
+    ['Quiet bloom', 'Carbon black'], ['Blue hour', 'Midnight blue'], ['Soft signal', 'Persimmon'],
+    ['Passing through', 'Carbon black'], ['A small gesture', 'Aubergine'], ['Open-ended', 'Forest green'],
+  ]);
 });

@@ -13,7 +13,7 @@ let playing = false;
 let animationMode = 'bloom';
 let hasBloomed = false;
 let zoom = 100;
-let selectedPreset = 0;
+let selectedPreset = PRESETS.findIndex(preset=>preset.name==='Quiet bloom');
 let rendering = false;
 let elapsed = 0;
 let previousTime = 0;
@@ -64,8 +64,8 @@ $('#app').innerHTML = `
           <div id="import-controls" hidden><div class="upload-zone" id="upload-zone" role="button" tabindex="0" aria-label="Import an SVG or bitmap">${icon('upload',24)}<strong>Bring your own mark</strong><p>Drop an SVG, PNG, JPG or WebP<br/>or click to browse · up to 10 MB</p></div><div id="import-name" class="import-name"></div><label class="checkbox-control"><input id="keep-source" type="checkbox" checked /> Preserve source colors</label></div>
           ${rangeControl('Size','size',150,1600,10,'px')}${rangeControl('Stroke weight','stroke',5,160,1,'px')}<div id="import-scale-control" hidden>${rangeControl('Import scale','importScale',.25,2,.01,'%')}</div><div class="action-grid"><button class="secondary" data-tool="stamp">${icon('plus',12)} Draw shapes</button><button class="secondary" data-action="clear">Clear paper</button><button class="secondary wide" data-action="compose">${icon('shuffle',12)} Generate composition</button></div>
         </section>
-        <section class="panel-section"><div class="section-heading"><span><span class="number">02</span> A drop of ink</span>${icon('drop',13)}</div><div class="ink-swatches" role="group" aria-label="Ink palettes">${INKS.map((ink,i)=>`<button class="ink-swatch ${i===0?'active':''}" data-ink="${i}" aria-label="${ink.name}: ${ink.pigments.join(', ')}" aria-pressed="${i===0}" title="${ink.name} · ${ink.pigments.join(' / ')}"><span class="ink-preview" aria-hidden="true">${ink.pigments.map(color=>`<span style="background:${color}"></span>`).join('')}</span><span class="ink-swatch-name">${ink.name}</span></button>`).join('')}</div><div class="ink-caption"><span id="ink-name">Carbon black</span><span id="ink-hex">#282925</span></div><div class="active-pigments" id="active-pigments" role="img" aria-label="Active pigment colors"></div><p class="ink-note">${icon('spark',12)}<span>One ink. A hidden world of colors.<br/>Mix between 1 and 6 pigment components.</span></p></section>
-        <section class="panel-section presets-section"><div class="section-heading"><span><span class="number">03</span> A little inspiration</span></div><div class="preset-list">${PRESETS.slice(0,3).map((preset,i)=>`<button class="preset ${i===0?'active':''}" data-preset="${i}"><img class="preset-art" data-thumbnail="${i}" alt="" /><div><div class="preset-name">${preset.name}</div><div class="preset-subtitle">${preset.subtitle}</div></div><span class="preset-check">${i===0?icon('check',12):''}</span></button>`).join('')}</div><button class="all-presets" data-action="library">Explore all experiments ${icon('right',10)}</button></section>
+        <section class="panel-section"><div class="section-heading"><span><span class="number">02</span> A drop of ink</span>${icon('drop',13)}</div><div class="ink-swatches" role="group" aria-label="Ink palettes">${INKS.map((ink,i)=>`<button class="ink-swatch ${i===state.inkIndex?'active':''}" data-ink="${i}" aria-label="${ink.name}: ${ink.pigments.join(', ')}" aria-pressed="${i===state.inkIndex}" title="${ink.name} · ${ink.pigments.join(' / ')}"><span class="ink-preview" aria-hidden="true">${ink.pigments.map(color=>`<span style="background:${color}"></span>`).join('')}</span><span class="ink-swatch-name">${ink.name}</span></button>`).join('')}</div><div class="ink-caption"><span id="ink-name">Carbon black</span><span id="ink-hex">#282925</span></div><div class="active-pigments" id="active-pigments" role="img" aria-label="Active pigment colors"></div><p class="ink-note">${icon('spark',12)}<span>One ink. A hidden world of colors.<br/>Mix between 1 and 6 pigment components.</span></p></section>
+        <section class="panel-section presets-section"><div class="section-heading"><span><span class="number">03</span> A little inspiration</span></div><div class="preset-list">${PRESETS.slice(0,6).map((preset,i)=>`<button class="preset ${i===selectedPreset?'active':''}" data-preset="${i}" aria-pressed="${i===selectedPreset}"><img class="preset-art" data-thumbnail="${i}" alt="" /><div><div class="preset-name">${preset.name}</div><div class="preset-subtitle">${preset.subtitle}</div></div><span class="preset-check">${i===selectedPreset?icon('check',12):''}</span></button>`).join('')}</div><button class="all-presets" data-action="library">Explore all experiments ${icon('right',10)}</button></section>
         <div class="panel-footnote">A little less control.<br/>A little more wonder.</div>
       </aside>
       <section class="studio" aria-label="Chromatography canvas">
@@ -165,7 +165,7 @@ function sync() {
   $$('[data-layer]').forEach(button=>{const visible=state.layers[Number(button.dataset.layer)];button.innerHTML=icon(visible?'eye':'hidden',14);button.setAttribute('aria-pressed',visible);button.closest('.layer').classList.toggle('is-hidden',!visible);});
   $$('[data-component-dot]').forEach(dot=>dot.style.setProperty('--pigment',state.pigments[Number(dot.dataset.componentDot)].color));
   $$('[data-mobility]').forEach(label=>label.textContent=`${state.pigments[Number(label.dataset.mobility)].mobility.toFixed(2)} mobility`);
-  const names = state.inkIndex===0 ? ['Rose','Slate blue','Warm ochre'] : [];
+  const names = INKS[state.inkIndex]?.name==='Carbon black' ? ['Rose','Slate blue','Warm ochre'] : [];
   $$('.component-name').forEach((label,i)=>label.textContent=names[i]||`Pigment ${i+1}`);
   $('#text-controls').hidden=brushShape!=='text' && state.shape!=='text';
   $('#text-input').value=state.text;
@@ -194,7 +194,8 @@ function sync() {
   updatePlayButton();
   $$('[data-action="undo"]').forEach(button=>button.disabled=!undoStack.length);
   $$('[data-action="redo"]').forEach(button=>button.disabled=!redoStack.length);
-  $$('.preset').forEach(button=>{const active=Number(button.dataset.preset)===selectedPreset;button.classList.toggle('active',active);button.querySelector('.preset-check').innerHTML=active?icon('check',12):'';});
+  $$('[data-preset]').forEach(button=>{const active=Number(button.dataset.preset)===selectedPreset;button.classList.toggle('active',active);button.setAttribute('aria-pressed',active);const check=button.querySelector('.preset-check');if(check)check.innerHTML=active?icon('check',12):'';});
+  $('#study-number').textContent=String((selectedPreset<0?0:selectedPreset)+1).padStart(3,'0');
   requestRender();
 }
 function syncWaterControls() {
@@ -267,7 +268,6 @@ function applyPreset(index) {
     tool='water';brushShape=state.shape;inputMode='draw';hasBloomed=false;elapsed=0;hslEditing=null;
     importedImage=null;
     updateMask();
-    $('#study-number').textContent=String(index+1).padStart(3,'0');
     $('#experiment-status').textContent='A moment of possibility';
     $('#simulation-time').textContent='A slow, beautiful process.';
     $('#import-name').textContent='';

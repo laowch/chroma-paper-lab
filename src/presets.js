@@ -1,4 +1,7 @@
 export const INKS = [
+  { name: 'Cyan nocturne', color: '#181922', pigments: ['#61518b', '#49b9c6', '#edf0d5'] },
+  { name: 'Sulfur halo', color: '#39343e', pigments: ['#e6ca73', '#aac68d', '#5b566f'] },
+  { name: 'Copper patina', color: '#262a28', pigments: ['#ae7f88', '#58bba6', '#454244'] },
   { name: 'Carbon black', color: '#282925', pigments: ['#f16dad', '#5d7eae', '#d5c36d'] },
   { name: 'Midnight blue', color: '#222b52', pigments: ['#ae79d0', '#2589c4', '#6265ac'] },
   { name: 'Burnt umber', color: '#684235', pigments: ['#d9778e', '#d69e54', '#8a7358'] },
@@ -45,9 +48,10 @@ export function variationSeeds(seed) {
 }
 
 export function initialState() {
+  const inkIndex=INKS.findIndex(ink=>ink.name==='Carbon black');
   return {
-    shape: 'ring', size: 760, stroke: 23, ink: INKS[0].color, inkIndex: 0,
-    pigments: makePigments(INKS[0].pigments), mode: 'radial', direction: 90,
+    shape: 'ring', size: 760, stroke: 23, ink: INKS[inkIndex].color, inkIndex,
+    pigments: makePigments(INKS[inkIndex].pigments), mode: 'radial', direction: 90,
     amount: .92, separation: .90, fiber: .58, grain: .34, retention: .96,
     progress: .88, seed: 2847, layers: [true,true,true], drops: [],
     dropPosition: { x: .5, y: .5 }, dropPlacement: 'center', showDropMarkers: true,
@@ -58,10 +62,13 @@ export function initialState() {
 }
 
 export const PRESETS = [
-  { name: 'Quiet bloom', subtitle: 'Carbon · radial', shape: 'ring', inkIndex: 0, seed: 2847, mode: 'radial', size: 760, stroke: 23, amount: .92, className: 'bloom' },
-  { name: 'Blue hour', subtitle: 'Midnight · drifting', shape: 'dot', inkIndex: 1, seed: 7341, mode: 'directional', size: 950, stroke: 80, amount: 1.15, className: 'blue' },
-  { name: 'Soft signal', subtitle: 'Persimmon · radial', shape: 'dot', inkIndex: 4, seed: 4713, mode: 'radial', size: 640, stroke: 30, amount: .82, className: 'signal' },
-  { name: 'Passing through', subtitle: 'Carbon · drifting', shape: 'ring', inkIndex: 0, seed: 9542, mode: 'directional', size: 700, stroke: 32, amount: 1.10, className: 'passing' },
-  { name: 'A small gesture', subtitle: 'Aubergine · radial', shape: 'line', inkIndex: 3, seed: 1982, mode: 'radial', size: 700, stroke: 28, amount: .56, className: 'gesture' },
-  { name: 'Open-ended', subtitle: 'Forest · radial', shape: 'arc', inkIndex: 5, seed: 6782, mode: 'radial', size: 850, stroke: 22, amount: .65, className: 'open' },
-];
+  { name: 'Cyan eclipse', subtitle: 'Cyan nocturne · violet / ice', shape: 'circle', ink: 'Cyan nocturne', seed: 8162, mode: 'radial', size: 420, stroke: 23, amount: 1.4, separation: .76, fiber: .36, grain: .4, randomness: .35, progress: 1.06 },
+  { name: 'Sulfur halo', subtitle: 'Sulfur halo · gold / sage', shape: 'polygon', ink: 'Sulfur halo', seed: 1979, mode: 'radial', size: 1120, stroke: 23, amount: 1.12, separation: .68, fiber: .32, grain: .46, randomness: .25, progress: .96 },
+  { name: 'Patina trace', subtitle: 'Copper patina · mint / ash', shape: 'line', ink: 'Copper patina', seed: 3751, mode: 'radial', size: 1120, stroke: 120, amount: 1.08, separation: .82, fiber: .48, grain: .5, randomness: .45, progress: .98 },
+  { name: 'Quiet bloom', subtitle: 'Carbon · radial', shape: 'ring', ink: 'Carbon black', seed: 2847, mode: 'radial', size: 760, stroke: 23, amount: .92, className: 'bloom' },
+  { name: 'Blue hour', subtitle: 'Midnight · drifting', shape: 'dot', ink: 'Midnight blue', seed: 7341, mode: 'directional', size: 950, stroke: 80, amount: 1.15, className: 'blue' },
+  { name: 'Soft signal', subtitle: 'Persimmon · radial', shape: 'dot', ink: 'Persimmon', seed: 4713, mode: 'radial', size: 640, stroke: 30, amount: .82, className: 'signal' },
+  { name: 'Passing through', subtitle: 'Carbon · drifting', shape: 'ring', ink: 'Carbon black', seed: 9542, mode: 'directional', size: 700, stroke: 32, amount: 1.10, className: 'passing' },
+  { name: 'A small gesture', subtitle: 'Aubergine · radial', shape: 'line', ink: 'Aubergine', seed: 1982, mode: 'radial', size: 700, stroke: 28, amount: .56, className: 'gesture' },
+  { name: 'Open-ended', subtitle: 'Forest · radial', shape: 'arc', ink: 'Forest green', seed: 6782, mode: 'radial', size: 850, stroke: 22, amount: .65, className: 'open' },
+].map(({ink,...preset})=>({...preset,inkIndex:INKS.findIndex(palette=>palette.name===ink)}));
