@@ -44,6 +44,22 @@ vec2 readMask(vec2 p) {
   float exterior = length(p-clamp(p,0.,1.));
   return exterior>0. ? vec2(max(value.r,0.)+exterior,0.) : value;
 }
+vec4 readSource(vec2 p) {
+  if(any(lessThan(p,vec2(0.))) || any(greaterThan(p,vec2(1.)))) return vec4(0.);
+  return texture(sourceTexture,vec2(p.x,1.-p.y));
+}
+vec4 wetSource(vec2 p, float radius) {
+  vec4 sampleColor=readSource(p);
+  float total=1.;
+  for(int i=0;i<16;i++) {
+    float r=sqrt((float(i)+.5)/16.);
+    float angle=float(i)*2.39996323;
+    float weight=exp(-r*r*2.);
+    sampleColor+=readSource(p+vec2(cos(angle),sin(angle))*r*radius)*weight;
+    total+=weight;
+  }
+  return sampleColor/total;
+}
 float segment(vec2 p, vec2 a, vec2 b) {
   vec2 pa = p-a, ba=b-a;
   return length(pa-ba*clamp(dot(pa,ba)/dot(ba,ba),0.,1.));
@@ -216,20 +232,41 @@ void main() {
   float aa=max(1.25/resolution.x,.0012);
   float original=1.-smoothstep(-aa,aa,originalD+edge);
   vec3 inkColor=ink;
-  if(shape>=6) {
-    original*=readMask(sourcePosition(p)).g;
-    if(shape==8 && keepSource) {
-      vec2 s=sourcePosition(p);
-      inkColor=texture(sourceTexture,vec2(s.x,1.-s.y)).rgb;
+  vec3 carrierColor=ink;
+  float sourceCoverage=1.;
+  if(shape==8) {
+    float soak=amount*t;
+    float radius=soak*.023;
+    vec2 drift=waterFlow*.2+vec2(cos(direction),sin(direction))*transport*(mode==1 ? .10 : 0.);
+    vec2 soakedP=p-drift+warp*radius*fiber*.5;
+    vec4 source=wetSource(sourcePosition(soakedP),radius);
+    original=source.a/(1.+soak*.52);
+    original*=1.+min(soak,1.)*(pores-.5)*fiber*.65;
+    vec2 anchor=sourcePosition(soakedP);
+    // Project in mask space: distorted world-space distances cannot locate source colors reliably.
+    for(int j=0;j<3;j++) {
+      float distance=readMask(anchor).r;
+      if(distance<=0.) break;
+      vec2 gradient=vec2(readMask(anchor+vec2(.001,0)).r-readMask(anchor-vec2(.001,0)).r,
+        readMask(anchor+vec2(0,.001)).r-readMask(anchor-vec2(0,.001)).r);
+      anchor-=normalize(gradient+vec2(.00001))*(distance+.001);
     }
+    vec4 carried=wetSource(anchor,max(.001,radius*.35));
+    sourceCoverage=carried.a;
+    if(keepSource) {
+      if(source.a>.00001) inkColor=source.rgb/source.a;
+      if(carried.a>.00001) carrierColor=carried.rgb/carried.a;
+    }
+  } else if(shape>=6) {
+    original*=readMask(sourcePosition(p)).g;
   }
   float carrierD=transportDistance(p-waterFlow*.2);
   if(mode==1) carrierD=sdf(p);
-  float carrier=exp(-max(carrierD,0.)/max(.0003,transport*.125));
-  if(mode==0) carrier*=smoothstep(-.002,.001,carrierD);
+  float carrier=exp(-(shape==8 ? abs(carrierD) : max(carrierD,0.))/max(.0003,transport*.125));
+  if(mode==0 && shape!=8) carrier*=smoothstep(-.002,.001,carrierD);
   float solubleInk=opacitySum/(float(pigmentCount)*1.94/3.);
-  carrier*=.36*solubleInk*min(t*4.,1.)*deposition*layers.y;
-  color=deposit(color,inkColor,carrier);
+  carrier*=.36*solubleInk*min(t*4.,1.)*deposition*layers.y*sourceCoverage;
+  color=deposit(color,carrierColor,carrier);
   alphaSum+=carrier;
   float inkGrain=1.-grainContrast*(.018+particles*.025);
   original*=layers.x*retention;
@@ -333,8 +370,13 @@ export class ChromatographyRenderer {
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RG32F,n,n,0,gl.RG,gl.FLOAT,field);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D,this.source);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+    // Premultiplied filtering keeps transparent pixels from bleeding black into wet ink.
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,sourceCanvas);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
   }
 

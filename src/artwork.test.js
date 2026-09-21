@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSeededMarks, drawMark, paintMask, scrubState } from './artwork.js';
+import { createSeededMarks, drawMark, paintMask, scrubState, MAX_DROPS, DROP_PLACEMENTS, resolveDropPosition, addWaterDrop, removeWaterDrops } from './artwork.js';
 import { initialState } from './presets.js';
 
 function contextSpy(side = 600) {
@@ -256,4 +256,122 @@ test('paintMask translates imported colors together with appended marks', () => 
     ['drawImage', image, 150, 225, 300, 150],
     ['beginPath'], ['arc', 150, 450, 60, 0, Math.PI * 2], ['fill'], ['restore'],
   ]);
+});
+
+test('water defaults use independent centered placement and visible markers', () => {
+  const first = initialState(), second = initialState();
+  assert.equal(first.dropPlacement, 'center');
+  assert.deepEqual(first.dropPosition, { x: .5, y: .5 });
+  assert.equal(first.showDropMarkers, true);
+  assert.equal(first.inkIndex, 0);
+  first.dropPosition.x = 0;
+  first.drops.push({ x: 0, y: 0, age: 0 });
+  assert.deepEqual(second.dropPosition, { x: .5, y: .5 });
+  assert.deepEqual(second.drops, []);
+});
+
+test('drop presets cover the nine quarter-grid positions with a top-left origin', () => {
+  const expected = {
+    center: [.5, .5], top: [.5, .25], bottom: [.5, .75], left: [.25, .5], right: [.75, .5],
+    'top-left': [.25, .25], 'top-right': [.75, .25], 'bottom-left': [.25, .75], 'bottom-right': [.75, .75],
+  };
+  assert.equal(DROP_PLACEMENTS.length, 9);
+  for (const option of DROP_PLACEMENTS) {
+    const [x, y] = expected[option.value];
+    const point = resolveDropPosition(option.value, { x: 0, y: 0 }, () => assert.fail('Fixed placement must not sample randomness'));
+    assert.deepEqual(point, { x, y });
+    point.x = -1;
+    assert.equal(option.x, x);
+  }
+});
+
+test('custom coordinates preserve precision, clamp paper edges and guard nonfinite values', () => {
+  const point = Object.freeze({ x: .123, y: .987 });
+  assert.deepEqual(resolveDropPosition('custom', point), point);
+  assert.notEqual(resolveDropPosition('custom', point), point);
+  assert.deepEqual(resolveDropPosition('custom', { x: -1, y: 2 }), { x: 0, y: 1 });
+  assert.deepEqual(resolveDropPosition('custom', { x: 0, y: 1 }), { x: 0, y: 1 });
+  assert.deepEqual(resolveDropPosition('custom', { x: NaN, y: Infinity }), { x: .5, y: .5 });
+  assert.deepEqual(resolveDropPosition('custom'), { x: .5, y: .5 });
+});
+
+test('random placement samples both axes afresh in the central half of the paper', () => {
+  const values = [0, 1, .2, .8, .5, .6];
+  let calls = 0;
+  const random = () => values[calls++];
+  const points = Array.from({ length: 3 }, () => resolveDropPosition('random', { x: 0, y: 1 }, random));
+  assert.deepEqual(points, [{ x: .25, y: .75 }, { x: .35, y: .65 }, { x: .5, y: .55 }]);
+  assert.equal(calls, 6);
+  assert.equal(new Set(points.map(point => JSON.stringify(point))).size, 3);
+  for (const point of points) for (const axis of ['x', 'y']) assert.ok(point[axis] >= .25 && point[axis] <= .75);
+});
+
+test('adding a drop uses the selected location and changes only drops and next coordinates', () => {
+  for (const dropPlacement of ['top-left', 'bottom-right', 'custom']) {
+    const state = { ...initialState(), dropPlacement, dropPosition: { x: .1, y: .9 }, marks: createSeededMarks(2847) };
+    const before = structuredClone(state);
+    const added = addWaterDrop(state);
+    const expected = resolveDropPosition(dropPlacement, state.dropPosition);
+    assert.deepEqual(added, { ...before, dropPosition: expected, drops: [{ ...expected, age: 0 }] });
+    assert.deepEqual(state, before);
+    assert.notEqual(added.dropPosition, added.drops[0]);
+    assert.equal(added.marks, state.marks);
+    assert.equal(added.pigments, state.pigments);
+  }
+  const state = initialState();
+  const added = addWaterDrop(state, { x: -.5, y: 1.5 });
+  assert.deepEqual(added.dropPosition, { x: 0, y: 1 });
+  assert.deepEqual(added.drops, [{ x: 0, y: 1, age: 0 }]);
+});
+
+test('water keeps the newest eight drops in order without mutating older snapshots', () => {
+  assert.equal(MAX_DROPS, 8);
+  let state = initialState();
+  for (let i = 0; i < 20; i++) {
+    const before = structuredClone(state), previous = state;
+    state = addWaterDrop(state, { x: i / 20, y: (20 - i) / 20 });
+    assert.deepEqual(previous, before);
+    assert.equal(state.drops.length, Math.min(i + 1, MAX_DROPS));
+    assert.deepEqual(state.drops.at(-1), { x: i / 20, y: (20 - i) / 20, age: 0 });
+    assert.equal(state.drops[0].x, Math.max(0, i - MAX_DROPS + 1) / 20);
+  }
+  const oversized = { ...initialState(), drops: Array.from({ length: 12 }, (_, i) => ({ x: i / 12, y: .5, age: i })) };
+  assert.equal(addWaterDrop(oversized).drops.length, MAX_DROPS);
+});
+
+test('removing last or clearing water preserves all non-drop state including base progress and ink', () => {
+  const state = {
+    ...initialState(), marks: createSeededMarks(4713), progress: .77, shape: 'composition',
+    dropPlacement: 'random', dropPosition: { x: .3, y: .7 }, showDropMarkers: false,
+    drops: [{ x: .1, y: .9, age: 12 }, { x: .3, y: .7, age: 4 }],
+  };
+  const before = structuredClone(state);
+  for (const [count, drops] of [[0, state.drops], [1, state.drops.slice(0, -1)], [2, []], [20, []], [undefined, []]]) {
+    const removed = removeWaterDrops(state, count);
+    assert.deepEqual(removed, { ...before, drops });
+    for (const key of Object.keys(state).filter(key => key !== 'drops')) assert.equal(removed[key], state[key]);
+    assert.deepEqual(state, before);
+    assert.notEqual(removed.drops, state.drops);
+  }
+  assert.deepEqual(removeWaterDrops(initialState()), initialState());
+});
+
+test('snapshots and seed variations retain sampled water locations through replay and export seeking', () => {
+  let state = { ...initialState(), dropPlacement: 'random', showDropMarkers: false };
+  for (const point of [{ x: .26, y: .72 }, { x: .63, y: .38 }]) state = addWaterDrop(state, point);
+  const saved = structuredClone(state);
+  state = removeWaterDrops(state);
+  assert.equal(state.drops.length, 0);
+  for (const seed of [2847, 4713, 7341]) {
+    const variation = { ...structuredClone(saved), seed };
+    for (const fraction of [0, 1, .2, 0]) {
+      scrubState(variation, fraction);
+      assert.deepEqual(variation.drops.map(({ x, y }) => ({ x, y })), saved.drops.map(({ x, y }) => ({ x, y })));
+      assert.ok(variation.drops.every(drop => drop.age === fraction * 22));
+      assert.equal(variation.dropPlacement, 'random');
+      assert.deepEqual(variation.dropPosition, saved.dropPosition);
+      assert.equal(variation.showDropMarkers, false);
+    }
+  }
+  assert.deepEqual(saved.drops.map(drop => drop.age), [0, 0]);
 });

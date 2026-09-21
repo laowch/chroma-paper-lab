@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceTransform, hexToRgb, SHAPES } from './renderer.js';
+import { ChromatographyRenderer, distanceTransform, hexToRgb, SHAPES } from './renderer.js';
 import {
   initialState, makePigments, PRESETS, INKS, MAX_PIGMENTS,
   hexToHsl, hslToHex, mixedInk, variationSeeds,
@@ -212,4 +212,45 @@ test('initial states have isolated marks and offsets', () => {
   assert.equal(b.generated, false);
   assert.deepEqual(initialState().marks, []);
   assert.deepEqual(initialState().offset, { x: 0, y: 0 });
+});
+
+test('imported texture filtering preserves premultiplied color and restores upload flags', () => {
+  const calls = [];
+  const gl = Object.fromEntries(['TEXTURE0', 'TEXTURE1', 'TEXTURE_2D', 'TEXTURE_MIN_FILTER', 'TEXTURE_MAG_FILTER', 'LINEAR', 'RGBA', 'RG32F', 'RG', 'FLOAT', 'UNSIGNED_BYTE', 'UNPACK_FLIP_Y_WEBGL', 'UNPACK_PREMULTIPLY_ALPHA_WEBGL'].map(key => [key, key]));
+  for (const method of ['activeTexture', 'bindTexture', 'texParameteri', 'pixelStorei', 'texImage2D']) {
+    gl[method] = (...args) => calls.push([method, ...args]);
+  }
+  const data = new Uint8ClampedArray(768 * 768 * 4);
+  data.set([255, 255, 255, 128], (384 * 768 + 384) * 4);
+  const canvas = { getContext: () => ({ getImageData: () => ({ data }) }) };
+  const renderer = Object.assign(Object.create(ChromatographyRenderer.prototype), { gl, mask: 'mask', source: 'source' });
+  renderer.setMask(canvas, canvas, true);
+  const uploads = calls.filter(([name]) => name === 'texImage2D');
+  const field = uploads[0].at(-1);
+  assert.ok(field[(384 * 768 + 384) * 2] < 0, 'a translucent white source still releases pigment');
+  assert.ok(Math.abs(field[(384 * 768 + 384) * 2 + 1] - 128 / 255 * 1.6) < 1e-6);
+  assert.equal(field[1], 0, 'transparent paper has no pigment');
+  assert.equal(uploads[1].at(-1), canvas);
+  assert.deepEqual(calls.filter(([name]) => name === 'pixelStorei'), [
+    ['pixelStorei', gl.UNPACK_FLIP_Y_WEBGL, true],
+    ['pixelStorei', gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true],
+    ['pixelStorei', gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false],
+    ['pixelStorei', gl.UNPACK_FLIP_Y_WEBGL, false],
+  ]);
+  assert.deepEqual(calls.filter(([name]) => name === 'texParameteri'), [
+    ['texParameteri', gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR],
+    ['texParameteri', gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR],
+  ]);
+});
+
+test('reference palettes extend the existing inks without changing their indices', () => {
+  assert.deepEqual(INKS.slice(0, 6).map(ink => ink.name), ['Carbon black', 'Midnight blue', 'Burnt umber', 'Aubergine', 'Persimmon', 'Forest green']);
+  assert.deepEqual(INKS.slice(6).map(ink => ink.pigments), [
+    ['#ff3864', '#1888ff', '#ffbd2e'],
+    ['#0a2a8a', '#ff4ca5', '#31d9c3'],
+    ['#6320ee', '#f72585', '#4cc9f0'],
+    ['#101010', '#2f68ff', '#ff5d20'],
+    ['#00543d', '#ee7b30', '#992f73'],
+  ]);
+  for (const palette of INKS.slice(6)) assert.equal(palette.color, mixedInk(makePigments(palette.pigments)));
 });

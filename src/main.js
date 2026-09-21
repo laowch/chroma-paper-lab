@@ -4,7 +4,7 @@ import { ChromatographyRenderer } from './renderer.js';
 import { initialState, INKS, PRESETS, makePigments, MAX_PIGMENTS, hexToHsl, hslToHex, mixedInk, variationSeeds } from './presets.js';
 import { canvasToPrintPng, downloadBlob, supportsVideoExport, recordCanvasVideo } from './export.js';
 import { prepareImportedImage } from './import.js';
-import { paintMask, createSeededMarks, scrubState } from './artwork.js';
+import { paintMask, createSeededMarks, scrubState, MAX_DROPS, DROP_PLACEMENTS, resolveDropPosition, addWaterDrop, removeWaterDrops } from './artwork.js';
 
 let state = initialState();
 let tool = 'water';
@@ -64,24 +64,26 @@ $('#app').innerHTML = `
           <div id="import-controls" hidden><div class="upload-zone" id="upload-zone" role="button" tabindex="0" aria-label="Import an SVG or bitmap">${icon('upload',24)}<strong>Bring your own mark</strong><p>Drop an SVG, PNG, JPG or WebP<br/>or click to browse · up to 10 MB</p></div><div id="import-name" class="import-name"></div><label class="checkbox-control"><input id="keep-source" type="checkbox" checked /> Preserve source colors</label></div>
           ${rangeControl('Size','size',150,1600,10,'px')}${rangeControl('Stroke weight','stroke',5,160,1,'px')}<div id="import-scale-control" hidden>${rangeControl('Import scale','importScale',.25,2,.01,'%')}</div><div class="action-grid"><button class="secondary" data-tool="stamp">${icon('plus',12)} Draw shapes</button><button class="secondary" data-action="clear">Clear paper</button><button class="secondary wide" data-action="compose">${icon('shuffle',12)} Generate composition</button></div>
         </section>
-        <section class="panel-section"><div class="section-heading"><span><span class="number">02</span> A drop of ink</span>${icon('drop',13)}</div><div class="ink-swatches">${INKS.map((ink,i)=>`<button class="ink-swatch ${i===0?'active':''}" style="--swatch:${ink.color}" data-ink="${i}" aria-label="${ink.name}" aria-pressed="${i===0}" title="${ink.name}"></button>`).join('')}</div><div class="ink-caption"><span id="ink-name">Carbon black</span><span id="ink-hex">#282925</span></div><p class="ink-note">${icon('spark',12)}<span>One ink. A hidden world of colors.<br/>Mix between 1 and 6 pigment components.</span></p></section>
+        <section class="panel-section"><div class="section-heading"><span><span class="number">02</span> A drop of ink</span>${icon('drop',13)}</div><div class="ink-swatches" role="group" aria-label="Ink palettes">${INKS.map((ink,i)=>`<button class="ink-swatch ${i===0?'active':''}" data-ink="${i}" aria-label="${ink.name}: ${ink.pigments.join(', ')}" aria-pressed="${i===0}" title="${ink.name} · ${ink.pigments.join(' / ')}"><span class="ink-preview" aria-hidden="true">${ink.pigments.map(color=>`<span style="background:${color}"></span>`).join('')}</span><span class="ink-swatch-name">${ink.name}</span></button>`).join('')}</div><div class="ink-caption"><span id="ink-name">Carbon black</span><span id="ink-hex">#282925</span></div><div class="active-pigments" id="active-pigments" role="img" aria-label="Active pigment colors"></div><p class="ink-note">${icon('spark',12)}<span>One ink. A hidden world of colors.<br/>Mix between 1 and 6 pigment components.</span></p></section>
         <section class="panel-section presets-section"><div class="section-heading"><span><span class="number">03</span> A little inspiration</span></div><div class="preset-list">${PRESETS.slice(0,3).map((preset,i)=>`<button class="preset ${i===0?'active':''}" data-preset="${i}"><img class="preset-art" data-thumbnail="${i}" alt="" /><div><div class="preset-name">${preset.name}</div><div class="preset-subtitle">${preset.subtitle}</div></div><span class="preset-check">${i===0?icon('check',12):''}</span></button>`).join('')}</div><button class="all-presets" data-action="library">Explore all experiments ${icon('right',10)}</button></section>
         <div class="panel-footnote">A little less control.<br/>A little more wonder.</div>
       </aside>
       <section class="studio" aria-label="Chromatography canvas">
         <div class="studio-top"><div class="document-title">${icon('layers',14)}<span>Untitled experiment</span><span class="edited" title="Local experiment">·</span></div><span class="paper-badge">THE PAPER IS YOURS</span></div>
         <div class="stage" id="stage"><div class="toolbar" role="toolbar" aria-label="Canvas tools"><button class="icon-button" data-tool="move" aria-label="Select tool" title="Select (V)">${icon('cursor',15)}</button><button class="icon-button" data-tool="draw" aria-label="Freehand drawing tool" title="Draw (B)">${icon('draw',15)}</button><span class="toolbar-divider"></span><button class="water-tool active" data-tool="water" aria-pressed="true" title="Add water (W)">${icon('drop',14)} Add water</button><span class="toolbar-divider"></span><button class="icon-button" data-action="undo" aria-label="Undo" title="Undo (⌘Z)" disabled>${icon('undo',14)}</button><button class="icon-button" data-action="redo" aria-label="Redo" title="Redo (⌘⇧Z)" disabled>${icon('redo',14)}</button></div>
-          <div class="artboard-wrap" id="artboard-wrap"><i class="paper-corner tl"></i><i class="paper-corner tr"></i><i class="paper-corner bl"></i><i class="paper-corner br"></i><div class="artboard" id="artboard" data-tool="water"><canvas id="paper" width="1100" height="1100" aria-label="Interactive paper chromatography artwork. Click to add water, or select Draw to make a mark."></canvas></div></div>
+          <div class="artboard-wrap" id="artboard-wrap"><i class="paper-corner tl"></i><i class="paper-corner tr"></i><i class="paper-corner bl"></i><i class="paper-corner br"></i><div class="artboard" id="artboard" data-tool="water"><canvas id="paper" width="1100" height="1100" aria-label="Interactive paper chromatography artwork. Click to add water, or select Draw to make a mark."></canvas><div id="water-markers" class="water-markers" aria-hidden="true"></div></div></div>
         </div>
         <section class="variations-panel" id="variations-panel" hidden aria-label="Seed variations"><div class="section-heading"><span>Ten possible journeys</span><button class="icon-button" data-action="close-variations" aria-label="Close variations">${icon('close',14)}</button></div><div class="variation-grid" id="variation-grid"></div></section>
         <div class="studio-bottom"><span class="dimensions">3000 <span class="dim-cross">×</span> 3000 px <span class="dim-divider"></span> 300 DPI <span class="dim-divider"></span> RGB</span><div class="zoom-tools"><button class="icon-button" data-action="zoom-out" aria-label="Zoom out">${icon('minus',12)}</button><output id="zoom-value">100%</output><button class="icon-button" data-action="zoom-in" aria-label="Zoom in">${icon('plus',12)}</button></div><button class="icon-button" data-action="fullscreen" aria-label="Toggle canvas fullscreen" title="Fullscreen">${icon('expand',14)}</button></div>
         <div class="workspace-hint">${icon('drop',13)}<span id="canvas-hint">Click anywhere on the paper to add a little water.</span><kbd>W</kbd></div>
       </section>
       <aside class="panel settings-panel" aria-label="Diffusion settings"><div class="settings-heading"><span>The art of diffusion</span><button class="icon-button" data-action="reset" aria-label="Reset diffusion settings" title="Reset diffusion settings">${icon('reset',14)}</button></div>
-        <section class="panel-section"><div class="section-heading"><span>Flow direction</span><span class="tiny-tag">FOLLOW THE WATER</span></div><div class="segmented"><button data-flow="radial" class="active">${icon('ring',11)} Radial</button><button data-flow="directional">${icon('arrow',11)} Directional</button></div><div class="direction-controls" id="direction-controls" hidden><span class="direction-dial">${icon('arrow',14)}</span>${rangeControl('Angle','direction',0,360,1,'°')}</div>${rangeControl('Water amount','amount',.1,1.5,.01,'%')}${rangeControl('Color separation','separation',0,1,.01,'%')}${rangeControl('Paper fibers','fiber',0,1,.01,'%')}${rangeControl('Pigment granulation','grain',0,1,.01,'%')}<details class="advanced-controls"><summary>More control</summary>${rangeControl('Flow randomness','randomness',0,2,.01,'%')}${rangeControl('Travel speed','speed',0,2,.01,'%')}${rangeControl('Original density','retention',0,1,.01,'%')}${rangeControl('Source distortion','sourceRandomness',0,1,.01,'%')}</details></section>
+        <section class="panel-section"><div class="section-heading"><span>Flow direction</span><span class="tiny-tag">FOLLOW THE WATER</span></div><div class="segmented"><button data-flow="radial" class="active">${icon('ring',11)} Radial</button><button data-flow="directional">${icon('arrow',11)} Directional</button></div><div class="direction-controls" id="direction-controls" hidden><span class="direction-dial">${icon('arrow',14)}</span>${rangeControl('Angle','direction',0,360,1,'°')}</div>${rangeControl('Water amount','amount',.1,1.5,.01,'%')}
+          <section class="water-drops" aria-labelledby="water-drops-heading"><div class="section-heading"><span id="water-drops-heading">Water drops</span><output id="drop-count" aria-label="Water drop count" aria-live="polite">0 / ${MAX_DROPS}</output></div><label class="drop-placement-label" for="drop-placement">Next drop position</label><select id="drop-placement" aria-describedby="drop-help">${DROP_PLACEMENTS.map(option=>`<option value="${option.value}">${option.label}</option>`).join('')}<option value="random">Random · 25–75%</option><option value="custom">Custom coordinates</option></select><div class="drop-coordinates">${['x','y'].map(axis=>`<label for="drop-${axis}">${axis.toUpperCase()} %<input id="drop-${axis}" data-drop-coordinate="${axis}" type="number" min="0" max="100" step="0.1" inputmode="decimal" aria-label="Next drop ${axis.toUpperCase()} percent" /></label>`).join('')}</div><button class="secondary add-drop" data-action="add-water">${icon('drop',12)} Add a drop</button><p class="drop-last" id="drop-last" aria-live="polite">Last drop: none</p><div class="action-grid"><button class="secondary" data-action="remove-last">Remove last</button><button class="secondary" data-action="clear-water">Clear water</button></div><label class="checkbox-control"><input id="show-drop-markers" type="checkbox" checked /> Show numbered markers</label><p class="drop-help" id="drop-help">Choose a position or edit X/Y, then add. Origin: top left. Random: a new point within 25–75% each time. Water-tool paper clicks add and set Custom. Only the newest 8 drops stay. Markers never export.</p></section>
+          ${rangeControl('Color separation','separation',0,1,.01,'%')}${rangeControl('Paper fibers','fiber',0,1,.01,'%')}${rangeControl('Pigment granulation','grain',0,1,.01,'%')}<details class="advanced-controls"><summary>More control</summary>${rangeControl('Flow randomness','randomness',0,2,.01,'%')}${rangeControl('Travel speed','speed',0,2,.01,'%')}${rangeControl('Original density','retention',0,1,.01,'%')}${rangeControl('Source distortion','sourceRandomness',0,1,.01,'%')}</details></section>
         <section class="panel-section"><div class="section-heading"><span>Pigment components</span><span class="tiny-tag" id="pigment-count">3 COLORS</span></div><div class="component-count"><button class="icon-button" data-action="remove-pigment" aria-label="Remove pigment">${icon('minus',12)}</button><span>1–6 components</span><button class="icon-button" data-action="add-pigment" aria-label="Add pigment">${icon('plus',12)}</button></div><div id="pigment-components"></div><div class="mini-help">${icon('help',11)}<span>Different pigments travel at different speeds.<br/>Open a component to make it your own.</span></div></section>
         <section class="panel-section layers-section"><div class="section-heading"><span class="layers-heading">Layers</span><span class="tiny-tag">THE ANATOMY OF A BLOOM</span></div>${['Original mark','Separated pigments','Water diffusion'].map((label,i)=>`<div class="layer" data-layer-row="${i}"><span class="layer-thumbnail ${['original','pigment','diffusion'][i]}"></span><span>${label}</span><button class="icon-button" data-layer="${i}" aria-label="Toggle ${label.toLowerCase()}" aria-pressed="true" title="Show / hide ${label.toLowerCase()}">${icon('eye',14)}</button></div>`).join('')}</section>
-        <div class="simulation-actions"><div class="timeline control"><label class="control-label" for="water-progress"><span>Water progress</span><output id="progress-value"></output></label><input id="water-progress" type="range" min="0" max="100" step="1" aria-label="Water progress" /></div><div class="action-grid"><button class="secondary" data-action="add-water">${icon('drop',12)} Add a drop</button><button class="secondary" data-action="purify">${icon('spark',12)} Purify</button><button class="secondary wide" data-action="variations">${icon('shuffle',12)} Generate 10 variations</button></div><button class="bloom-button" data-action="play">${icon('play',14)}<span>Let it bloom</span></button><div class="simulation-meta"><span id="simulation-time">A slow, beautiful process.</span><button class="seed-button" data-action="reseed" title="Generate a new variation">${icon('shuffle',12)} Seed <span id="seed-value">2847</span></button></div></div>
+        <div class="simulation-actions"><div class="timeline control"><label class="control-label" for="water-progress"><span>Water progress</span><output id="progress-value"></output></label><input id="water-progress" type="range" min="0" max="100" step="1" aria-label="Water progress" /></div><div class="action-grid"><button class="secondary wide" data-action="purify">${icon('spark',12)} Purify</button><button class="secondary wide" data-action="variations">${icon('shuffle',12)} Generate 10 variations</button></div><button class="bloom-button" data-action="play">${icon('play',14)}<span>Let it bloom</span></button><div class="simulation-meta"><span id="simulation-time">A slow, beautiful process.</span><button class="seed-button" data-action="reseed" title="Generate a new variation">${icon('shuffle',12)} Seed <span id="seed-value">2847</span></button></div></div>
       </aside>
     </div>
     <div class="render-status"><span id="render-status" role="status">WebGL 2 · Ready</span><span>PNG 3000 × 3000 · Video 1920 × 1920 / 25 FPS</span></div>
@@ -90,7 +92,7 @@ $('#app').innerHTML = `
   <input id="file-input" type="file" accept="image/svg+xml,image/png,image/jpeg,image/webp" hidden />
   <div class="toast" role="status" aria-live="polite"></div>
   <dialog class="dialog" id="library-dialog"><div class="dialog-head"><div><h2>A cabinet of curiosities.</h2><p class="dialog-intro">A few starting points. No two experiments end the same.</p></div><button class="icon-button" data-close aria-label="Close library">${icon('close')}</button></div><div class="library-grid">${PRESETS.map((preset,i)=>`<button class="library-preset" data-preset="${i}"><img data-thumbnail="${i}" alt="${preset.name} chromatography study" /><div class="preset-name">${preset.name}</div><div class="preset-subtitle">${preset.subtitle}</div></button>`).join('')}</div></dialog>
-  <dialog class="dialog" id="help-dialog"><div class="dialog-head"><div><h2>A mark is only the beginning.</h2><p class="dialog-intro">A small guide to getting beautifully lost.</p></div><button class="icon-button" data-close aria-label="Close guide">${icon('close')}</button></div><div class="guide-steps"><div class="guide-step"><h3>Make your mark</h3><p>Choose Draw shapes to add marks, or draw freehand directly on the paper. Drag to set a shape’s size. Move the artwork with V, clear it, or generate a composition. Imported images are cropped to their foreground.</p></div><div class="guide-step"><h3>Meet your pigments</h3><p>Each ink contains one to six components. Edit colors using HSL or HEX, or add and remove pigments. Adjust their colors, mobility, spread, saturation, and direction independently.</p></div><div class="guide-step"><h3>Just add water</h3><p>With Add water selected, click the paper. The wetting front moves out from your click, carrying pigments along uneven fibers. Click near your mark to see separation sooner.</p></div><div class="guide-step"><h3>Keep a little wonder</h3><p>Scrub Water progress, strengthen separation with Purify, or compare ten variations. Export a 3000 × 3000 PNG with 300 DPI metadata, on white or transparent paper, or record a five-second MP4 / WebM.</p></div></div><h3>Not a blur. A separation.</h3><p>This is a generative interpretation of paper chromatography, not a laboratory fluid solver. Component-specific transport, capillary noise, local wetting fronts, and granular deposition create irregular bands while preserving the original mark. No Gaussian blur or paper-texture overlay is used.</p><div class="shortcut-row"><span>W · Water</span><span>B · Draw</span><span>V · Select</span><span>Space · Play / pause</span><span>⌘ Z · Undo</span><span>⌘ ⇧ Z · Redo</span></div></dialog>
+  <dialog class="dialog" id="help-dialog"><div class="dialog-head"><div><h2>A mark is only the beginning.</h2><p class="dialog-intro">A small guide to getting beautifully lost.</p></div><button class="icon-button" data-close aria-label="Close guide">${icon('close')}</button></div><div class="guide-steps"><div class="guide-step"><h3>Make your mark</h3><p>Choose Draw shapes to add marks, or draw freehand directly on the paper. Drag to set a shape’s size. Move the artwork with V, clear it, or generate a composition. Imported images are cropped to their foreground.</p></div><div class="guide-step"><h3>Meet your pigments</h3><p>Each ink contains one to six components. Edit colors using HSL or HEX, or add and remove pigments. Adjust their colors, mobility, spread, saturation, and direction independently.</p></div><div class="guide-step"><h3>Just add water</h3><p>Use Water drops beside Water amount to choose the center, an edge, a corner, or precise X/Y percentages from the top-left origin. Choosing a position does not add water until you press Add a drop. Random chooses a new point within 25–75% each time. With the water tool selected, paper clicks add at that point and set the next position to Custom. Numbered guides appear only in the water tool and never in PNGs or videos; hide them with Show numbered markers. The newest eight drops are kept. Remove last or Clear water preserves your marks, ink and base progress, and can be undone.</p></div><div class="guide-step"><h3>Keep a little wonder</h3><p>Scrub Water progress, strengthen separation with Purify, or compare ten variations. Export a 3000 × 3000 PNG with 300 DPI metadata, on white or transparent paper, or record a five-second MP4 / WebM.</p></div></div><h3>Not a blur. A separation.</h3><p>This is a generative interpretation of paper chromatography, not a laboratory fluid solver. Component-specific transport, capillary noise, local wetting fronts, and granular deposition create irregular bands while preserving the original mark. Uploaded ink softens and releases color as water reaches it, while each pigment travels independently.</p><div class="shortcut-row"><span>W · Water</span><span>B · Draw</span><span>V · Select</span><span>Space · Play / pause</span><span>⌘ Z · Undo</span><span>⌘ ⇧ Z · Redo</span></div></dialog>
   <dialog class="dialog" id="export-dialog"><div class="dialog-head"><div><h2>A little piece of possibility.</h2><p class="dialog-intro">Take your experiment out into the world.</p></div><button class="icon-button" data-close aria-label="Close export dialog">${icon('close')}</button></div><div class="export-options"><button class="export-option" data-export="white">${icon('download',24)}<div><strong>White paper</strong><span>PNG · 3000 × 3000 px · 300 DPI · RGB</span></div>${icon('right',16)}</button><button class="export-option" data-export="transparent">${icon('layers',24)}<div><strong>Just the pigment</strong><span>Transparent PNG · 3000 × 3000 px · 300 DPI</span></div>${icon('right',16)}</button><button class="export-option" data-export="video">${icon('play',24)}<div><strong>A bloom in motion</strong><span>5 seconds · 1920 × 1920 px · 25 FPS · MP4 / WebM</span></div>${icon('right',16)}</button></div><p id="export-progress" role="status"></p><button class="secondary" data-action="cancel-export" hidden>Cancel recording</button><p class="export-note">Print-ready resolution, with 300 DPI embedded in the file. Perfect for combining individual studies in Photoshop. Your artwork stays on your device.</p></dialog>
 `;
 
@@ -179,6 +181,11 @@ function sync() {
   $('#import-name').textContent=state.importName;
   $('#ink-name').textContent=state.inkIndex<0?'Custom ink':INKS[state.inkIndex].name;
   $('#ink-hex').textContent=state.ink.toUpperCase();
+  $('#active-pigments').setAttribute('aria-label',`Active pigments: ${state.pigments.map(p=>p.color).join(', ')}`);
+  $('#active-pigments').replaceChildren(...state.pigments.map(pigment=>{
+    const chip=document.createElement('span');chip.style.background=pigment.color;chip.title=pigment.color;return chip;
+  }));
+  syncWaterControls();
   $('#seed-value').textContent=state.seed;
   $('#artboard').dataset.tool=tool;
   $('#canvas-hint').textContent={water:'Click anywhere on the paper to add a little water.',draw:'Draw freely. Every stroke stays on the paper.',stamp:`Click or drag to add a ${shapeLabels[brushShape].toLowerCase()}. Existing marks stay.`,move:'Drag to move the artwork across the paper.'}[tool];
@@ -189,6 +196,28 @@ function sync() {
   $$('[data-action="redo"]').forEach(button=>button.disabled=!redoStack.length);
   $$('.preset').forEach(button=>{const active=Number(button.dataset.preset)===selectedPreset;button.classList.toggle('active',active);button.querySelector('.preset-check').innerHTML=active?icon('check',12):'';});
   requestRender();
+}
+function syncWaterControls() {
+  $('#drop-placement').value=state.dropPlacement;
+  $$('[data-drop-coordinate]').forEach(input=>{
+    if(input!==document.activeElement)input.value=Number((state.dropPosition[input.dataset.dropCoordinate]*100).toFixed(1));
+  });
+  $('#show-drop-markers').checked=state.showDropMarkers;
+  $('#drop-count').textContent=`${state.drops.length} / ${MAX_DROPS}`;
+  if(!state.drops.length)$$('.water-ring').forEach(ripple=>ripple.remove());
+  const last=state.drops.at(-1);
+  $('#drop-last').textContent=last ? `Last drop: X ${(last.x*100).toFixed(1)}% · Y ${(last.y*100).toFixed(1)}%` : 'Last drop: none';
+  $('[data-action="remove-last"]').disabled=!state.drops.length;
+  $('[data-action="clear-water"]').disabled=!state.drops.length;
+  const markers=$('#water-markers');
+  if(!markers)return;
+  markers.hidden=tool!=='water'||!state.showDropMarkers;
+  markers.replaceChildren(...state.drops.map((drop,index)=>{
+    const marker=document.createElement('span');marker.className='water-marker';marker.textContent=String(index+1);
+    marker.style.left=`clamp(10px, ${drop.x*100}%, calc(100% - 10px))`;
+    marker.style.top=`clamp(10px, ${drop.y*100}%, calc(100% - 10px))`;
+    return marker;
+  }));
 }
 function snapshot() {
   return {state:structuredClone(state),tool,brushShape,inputMode,selectedPreset,elapsed,hasBloomed,animationMode};
@@ -262,6 +291,7 @@ async function restore(saved) {
     state=structuredClone(saved.state);importedImage=image;
     ({tool,brushShape,inputMode,selectedPreset,elapsed,hasBloomed,animationMode}=saved);
     hslEditing=null;gesture=null;
+    $$('.water-ring').forEach(ripple=>ripple.remove());
     updateMask();sync();
   } finally {restoring=false;$('.workspace').inert=false;}
 }
@@ -312,7 +342,7 @@ function togglePlay() {
   if(busy||restoring||!renderer)return;
   if(playing) {stopAnimation();return;}
   record();
-  if(!hasBloomed || state.progress>=1.2) {state.progress=.02;state.drops=[];elapsed=0;}
+  if(!hasBloomed || state.progress>=1.2) {scrubState(state,0);state.progress=.02;elapsed=0;}
   hasBloomed=true;
   startAnimation('bloom');
   sync();
@@ -322,13 +352,21 @@ function position(event) {
   const rect=$('#paper').getBoundingClientRect();
   return {x:Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),y:Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))};
 }
-function addWater(p={x:.5,y:.5}) {
-  if(state.drops.length===8)state.drops.shift();
-  state.drops.push({...p,age:0});
-  const ripple=document.createElement('span');
-  ripple.className='water-ring';ripple.style.left=`${p.x*100}%`;ripple.style.top=`${p.y*100}%`;
+function addWater(p) {
+  if(busy||restoring||!renderer)return;
+  if(p)state.dropPlacement='custom';
+  state=addWaterDrop(state,p);
+  const point=state.dropPosition, ripple=document.createElement('span');
+  ripple.className='water-ring';ripple.style.left=`${point.x*100}%`;ripple.style.top=`${point.y*100}%`;
   $('#artboard').append(ripple);setTimeout(()=>ripple.remove(),1900);
   hasBloomed=true;startAnimation('water');
+}
+function removeWater(lastOnly = false) {
+  if(busy||restoring||!state.drops.length)return;
+  change(()=>{
+    stopAnimation();state=removeWaterDrops(state,lastOnly?1:state.drops.length);
+    $$('.water-ring').forEach(ripple=>ripple.remove());
+  });
 }
 $('#artboard').addEventListener('pointerdown',event=>{
   if(!renderer||busy||restoring||event.button!==0||gesture)return;
@@ -388,6 +426,21 @@ $$('[data-ink]').forEach(button=>button.addEventListener('click',()=>change(()=>
   const index=Number(button.dataset.ink);state.inkIndex=index;state.ink=INKS[index].color;state.pigments=makePigments(INKS[index].pigments);selectedPreset=-1;hslEditing=null;
 })));
 $$('[data-flow]').forEach(button=>button.addEventListener('click',()=>change(()=>{state.mode=button.dataset.flow;selectedPreset=-1;})));
+$('#drop-placement').addEventListener('change',event=>change(()=>{
+  state.dropPlacement=event.target.value;
+  if(state.dropPlacement!=='random')state.dropPosition=resolveDropPosition(state.dropPlacement,state.dropPosition);
+}));
+$$('[data-drop-coordinate]').forEach(input=>input.addEventListener('change',()=>{
+  if(busy||restoring)return;
+  const axis=input.dataset.dropCoordinate, value=input.valueAsNumber;
+  if(!Number.isFinite(value)){input.value=Number((state.dropPosition[axis]*100).toFixed(1));return;}
+  change(()=>{
+    state.dropPlacement='custom';
+    state.dropPosition=resolveDropPosition('custom',{...state.dropPosition,[axis]:Math.round(value*10)/1000});
+    input.value=Number((state.dropPosition[axis]*100).toFixed(1));
+  });
+}));
+$('#show-drop-markers').addEventListener('change',event=>change(()=>state.showDropMarkers=event.target.checked));
 const editable='[data-param], [data-hsl], [data-hex], #water-progress';
 $('#app').addEventListener('pointerdown',event=>{if(event.target.matches('input[type="range"]'))record();});
 $('#app').addEventListener('keydown',event=>{
@@ -443,13 +496,14 @@ const actions={
   undo,redo,play:togglePlay,
   reset:()=>change(()=>{
     const defaults=initialState();
-    for(const key of ['amount','separation','fiber','grain','mode','direction','retention','layers','progress','drops','randomness','speed','sourceRandomness'])state[key]=defaults[key];
+    for(const key of ['amount','separation','fiber','grain','mode','direction','retention','layers','progress','drops','dropPosition','dropPlacement','showDropMarkers','randomness','speed','sourceRandomness'])state[key]=defaults[key];
     state.pigments=makePigments(state.pigments.map(p=>p.color));hslEditing=null;
     stopAnimation();hasBloomed=false;elapsed=0;updatePlayButton();toast('Diffusion reset. A fresh possibility.');
   }),
   reseed:()=>change(()=>{state.seed=1000+Math.floor(Math.random()*9000);if(state.generated)state.marks=createSeededMarks(state.seed);selectedPreset=-1;updateMask();toast('Same ink. A different journey.');}),
   clear:()=>change(()=>{
     stopAnimation();state.shape='composition';state.marks=[];state.paths=[];state.drops=[];state.imported=null;state.importName='';state.offset={x:0,y:0};state.generated=false;state.progress=0;
+    state.dropPosition={x:.5,y:.5};state.dropPlacement='center';state.showDropMarkers=true;
     importedImage=null;inputMode='draw';tool='stamp';selectedPreset=-1;hasBloomed=false;elapsed=0;updateMask();toast('A clean sheet. Undo brings your marks back.');
   }),
   compose:()=>change(()=>{
@@ -457,6 +511,8 @@ const actions={
     importedImage=null;inputMode='draw';tool='water';selectedPreset=-1;hasBloomed=false;elapsed=0;updateMask();
   }),
   'add-water':()=>change(()=>addWater()),
+  'remove-last':()=>removeWater(true),
+  'clear-water':()=>removeWater(),
   purify:()=>change(()=>{state.separation=Math.max(.9,state.separation);state.speed=Math.max(1.35,state.speed);state.grain=Math.max(.62,state.grain);selectedPreset=-1;addWater();toast('Stronger separation. Let the pigments travel.');}),
   'add-pigment':()=>{
     if(state.pigments.length>=MAX_PIGMENTS)return;
@@ -508,6 +564,7 @@ async function importFile(file) {
     setBusy(false);
     change(()=>{
       importedImage=source;state.imported=data;state.importName=file.name;state.importScale=1;state.shape='import';state.size=1250;state.keepSource=true;state.marks=[];state.paths=[];state.offset={x:0,y:0};state.generated=false;state.progress=0;
+      state.dropPlacement='center';state.dropPosition={x:.5,y:.5};
       selectedPreset=-1;inputMode='import';tool='water';state.drops=[];elapsed=0;updateMask();addWater();
     });
     imported=true;toast('Foreground extracted and cropped. A little water is finding its way.');

@@ -5,6 +5,13 @@ export const INKS = [
   { name: 'Aubergine', color: '#58364e', pigments: ['#d66dab', '#7972b8', '#ad6794'] },
   { name: 'Persimmon', color: '#d77837', pigments: ['#e890c5', '#f0bb45', '#f07751'] },
   { name: 'Forest green', color: '#3c5142', pigments: ['#a1af70', '#5b9b9f', '#929767'] },
+  ...[
+    { name: 'Prism', pigments: ['#ff3864', '#1888ff', '#ffbd2e'] },
+    { name: 'Lagoon', pigments: ['#0a2a8a', '#ff4ca5', '#31d9c3'] },
+    { name: 'Electric bloom', pigments: ['#6320ee', '#f72585', '#4cc9f0'] },
+    { name: 'Ember', pigments: ['#101010', '#2f68ff', '#ff5d20'] },
+    { name: 'Botanical', pigments: ['#00543d', '#ee7b30', '#992f73'] },
+  ].map(ink=>({...ink,color:mixedInk(ink.pigments.map(color=>({color})))})),
 ];
 
 export const MAX_PIGMENTS = 6;
@@ -17,7 +24,7 @@ export function hexToHsl(hex) {
   const [r,g,b] = [1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255);
   const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min, l=(max+min)/2;
   const h=d===0 ? 0 : max===r ? ((g-b)/d+6)%6 : max===g ? (b-r)/d+2 : (r-g)/d+4;
-  return { h:h*60, s:d===0 ? 0 : d/(1-Math.abs(2*l-1))*100, l:l*100 };
+  return { h:h*60, s:d===0 ? 0 : Math.min(100,d/(1-Math.abs(2*l-1))*100), l:l*100 };
 }
 
 export function hslToHex({h,s,l}) {
@@ -43,6 +50,7 @@ export function initialState() {
     pigments: makePigments(INKS[0].pigments), mode: 'radial', direction: 90,
     amount: .92, separation: .90, fiber: .58, grain: .34, retention: .96,
     progress: .88, seed: 2847, layers: [true,true,true], drops: [],
+    dropPosition: { x: .5, y: .5 }, dropPlacement: 'center', showDropMarkers: true,
     text: 'a', keepSource: true, paths: [], imported: null, importName: '', importScale: 1,
     randomness: 1, speed: 1, sourceRandomness: 0,
     marks: [], offset: { x: 0, y: 0 }, generated: false,

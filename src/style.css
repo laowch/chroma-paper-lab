@@ -10,4 +10,27 @@
 @media(min-width:961px){.workspace{align-items:start}.studio{position:sticky;top:16px}.panel{max-height:calc(100vh - 205px);min-height:610px;overflow-y:auto;scrollbar-width:thin}.settings-panel .simulation-actions{margin-top:0}.settings-panel .panel-section,.settings-heading,.simulation-actions{flex-shrink:0}}
 @media(max-width:960px){.simulation-actions{display:grid;grid-template-columns:1fr 1fr;gap:15px}.simulation-actions .action-grid{margin:0;grid-row:span 2}.simulation-actions .simulation-meta{grid-column:1/-1}.simulation-actions .bloom-button{max-width:none}.timeline{margin:0}.component summary{gap:5px}}
 @media(max-width:640px){.render-status{font-size:8px;flex-wrap:wrap}.variation-grid{gap:4px}.variation{padding:3px}.variation span{font-size:7px}.secondary{font-size:8px;padding:8px 4px}.component summary .mobility-caption{display:none}.source-panel .panel-section:first-child{min-width:0}.shape-grid{gap:3px}.shape-button{min-width:0}.section-heading .tiny-tag{font-size:7px;letter-spacing:.4px}.settings-panel .panel-section{min-width:0}.hsl-control input{min-width:0}.studio .stage{padding-top:38px}.simulation-actions{gap:12px}.simulation-actions .action-grid{gap:5px}}
+.ink-swatches{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:2px 0 12px}
+.ink-swatch{width:100%;height:auto;min-width:0;min-height:43px;border:1px solid #e3ddd8;border-radius:5px;background:#fffefa;outline:none;padding:5px;text-align:left;display:flex;flex-direction:column;gap:5px}
+.ink-swatch.active{border-color:#a58cb9;background:#f0ebf5;box-shadow:0 0 0 1px #a58cb9}
+.ink-swatch:hover{border-color:#b6a4c8;background:#f6f1f8;transform:none}
+.ink-swatch:focus-visible{outline:2px solid #9180a6;outline-offset:2px}
+.ink-preview,.active-pigments{display:flex;overflow:hidden;border-radius:3px;min-height:13px;width:100%}
+.ink-preview span,.active-pigments span{flex:1;min-width:0}
+.ink-swatch-name{font-size:8px;line-height:1.35;overflow-wrap:anywhere}
+.ink-caption{gap:5px;flex-wrap:wrap}.active-pigments{height:5px;min-height:5px;margin-top:8px}
+.water-drops{border:1px solid #ded5e6;background:#f7f3f9;border-radius:6px;margin-top:20px;padding:11px;min-width:0}
+.water-drops .section-heading{font-size:11px;margin-bottom:12px;gap:6px}.water-drops output{font-size:9px;color:#8a7699;font-variant-numeric:tabular-nums;white-space:nowrap}
+.drop-placement-label,.drop-coordinates label{display:block;font-size:9px;line-height:1.4;color:#81718a}
+.water-drops select,.drop-coordinates input{width:100%;min-width:0;background:#fffefa;border:1px solid #dcd3e3;border-radius:4px;padding:7px 5px;color:#655471;font-size:10px;margin-top:5px}
+.water-drops select:focus-visible,.drop-coordinates input:focus-visible,.water-drops input[type=checkbox]:focus-visible{outline:2px solid #a58cb9;outline-offset:2px}
+.drop-coordinates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}.drop-coordinates input{font-variant-numeric:tabular-nums}
+.water-drops .add-drop{width:100%;margin-top:11px;background:#eae3f1;border-color:#cbbbd8}
+.drop-last{font-size:9px;color:#83718e;font-variant-numeric:tabular-nums;line-height:1.5;margin:10px 0 0}
+.water-drops .action-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin:9px 0 0}.water-drops .secondary{min-width:0}
+.water-drops .checkbox-control{font-size:9px;line-height:1.4;align-items:flex-start;margin-top:11px}.water-drops .checkbox-control input{margin:0;flex:none}
+.drop-help{font-size:8px;line-height:1.65;color:#97879d;margin:10px 0 0}
+.water-markers{position:absolute;inset:0;pointer-events:none}.water-marker{position:absolute;display:flex;align-items:center;justify-content:center;width:19px;height:19px;transform:translate(-50%,-50%);border:1px solid #a69ab7;border-radius:50%;background:#fffefaeb;color:#756184;font-size:10px;font-weight:550;font-variant-numeric:tabular-nums;box-shadow:0 1px 3px #51405e14;pointer-events:none}
+.artboard:not([data-tool=water]) .water-ring{display:none}
+@media(max-width:640px){.source-panel,.settings-panel{grid-template-columns:repeat(2,minmax(0,1fr))}.source-panel .panel-section{min-width:0}.ink-swatches{gap:5px}.ink-swatch{padding:4px}.ink-swatch-name{font-size:7px}.water-drops{padding:8px}.water-drops select{font-size:9px}.drop-coordinates{gap:5px}.drop-coordinates input{padding:7px 3px}}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition:none!important}}

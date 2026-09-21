@@ -58,6 +58,35 @@ export function paintMask(ctx, state, image) {
   if(translated)ctx.restore();
 }
 
+export const MAX_DROPS = 8;
+export const DROP_PLACEMENTS = [
+  { value: 'center', label: 'Center', x: .5, y: .5 },
+  { value: 'top', label: 'Top', x: .5, y: .25 },
+  { value: 'bottom', label: 'Bottom', x: .5, y: .75 },
+  { value: 'left', label: 'Left', x: .25, y: .5 },
+  { value: 'right', label: 'Right', x: .75, y: .5 },
+  { value: 'top-left', label: 'Top left', x: .25, y: .25 },
+  { value: 'top-right', label: 'Top right', x: .75, y: .25 },
+  { value: 'bottom-left', label: 'Bottom left', x: .25, y: .75 },
+  { value: 'bottom-right', label: 'Bottom right', x: .75, y: .75 },
+];
+
+export function resolveDropPosition(placement, position = { x: .5, y: .5 }, random = Math.random) {
+  const clamp=value=>Number.isFinite(value) ? Math.max(0,Math.min(1,value)) : .5;
+  if(placement==='random')return {x:.25+clamp(random())*.5,y:.25+clamp(random())*.5};
+  const point=DROP_PLACEMENTS.find(option=>option.value===placement)||position;
+  return {x:clamp(point.x),y:clamp(point.y)};
+}
+
+export function addWaterDrop(state, position = resolveDropPosition(state.dropPlacement,state.dropPosition)) {
+  const point=resolveDropPosition('custom',position);
+  return {...state,dropPosition:point,drops:[...state.drops.slice(-(MAX_DROPS-1)),{...point,age:0}]};
+}
+
+export function removeWaterDrops(state, count = state.drops.length) {
+  return {...state,drops:state.drops.slice(0,Math.max(0,state.drops.length-count))};
+}
+
 export function scrubState(state, fraction) {
   state.progress=fraction*1.22;
   state.drops.forEach(drop=>drop.age=fraction*22);
