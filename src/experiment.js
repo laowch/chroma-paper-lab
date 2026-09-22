@@ -1,4 +1,4 @@
-import { INKS, PRESETS, MAX_PIGMENTS } from './presets.js';
+import { INKS, PRESETS, MAX_PIGMENTS, DEFAULT_DROP_RADIUS } from './presets.js';
 import { MAX_DROPS, DROP_PLACEMENTS } from './artwork.js';
 import { crc32 } from './export.js';
 
@@ -180,6 +180,7 @@ function state(value) {
     pigments: Array.from(array(value.pigments, 'state.pigments', 1, MAX_PIGMENTS), (entry, index) => pigment(entry, `state.pigments[${index}]`)),
     mode: choice(value.mode, 'state.mode', ['radial', 'directional']),
     direction: number(value.direction, 'state.direction', 0, 360),
+    localFlow: Object.hasOwn(value, 'localFlow') ? boolean(value.localFlow, 'state.localFlow') : false,
     amount: number(value.amount, 'state.amount', .1, 1.5),
     separation: number(value.separation, 'state.separation', 0, 1),
     fiber: number(value.fiber, 'state.fiber', 0, 1),
@@ -192,6 +193,7 @@ function state(value) {
       const path = `state.drops[${index}]`;
       return { ...point(entry, path, 0, 1), age: number(entry.age, `${path}.age`, 0, 22) };
     }),
+    dropRadius: value.dropRadius === undefined ? DEFAULT_DROP_RADIUS : number(value.dropRadius, 'state.dropRadius', .1, 1.5),
     dropPosition: point(value.dropPosition, 'state.dropPosition', 0, 1),
     dropPlacement: choice(value.dropPlacement, 'state.dropPlacement', PLACEMENTS),
     showDropMarkers: boolean(value.showDropMarkers, 'state.showDropMarkers'),

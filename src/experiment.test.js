@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_EXPERIMENT_BYTES, serializeExperiment, parseExperiment } from './experiment.js';
-import { initialState, INKS, PRESETS, makePigments } from './presets.js';
+import { initialState, presetState, INKS, PRESETS, makePigments } from './presets.js';
 import { createSeededMarks, DROP_PLACEMENTS } from './artwork.js';
 import { crc32 } from './export.js';
 
@@ -37,7 +37,7 @@ function editedSnapshot() {
     grain: .73, retention: .29, progress: .6789, seed: 0xffffffff,
     layers: [false, true, false],
     drops: [0, .001, .3, 2.5, 6, 12.125, 18.3, 22].map((age, index) => ({ x: index / 7, y: 1 - index / 7, age })),
-    dropPosition: { x: .1234, y: .9876 }, dropPlacement: 'custom', showDropMarkers: false,
+    dropRadius: .27, dropPosition: { x: .1234, y: .9876 }, dropPlacement: 'custom', showDropMarkers: false,
     text: '水 & ink', keepSource: false,
     paths: [[{ x: -2, y: 3 }, { x: 1.25, y: -.33 }], [], [{ x: .1, y: .9 }]],
     imported: PNG, importName: '<original> 水.svg', importScale: 1.63,
@@ -97,6 +97,8 @@ test('initial state round trips exactly with a named versioned wrapper', () => {
   const saved = initialSnapshot(), text = serializeExperiment(saved), file = JSON.parse(text);
   assert.equal(file.format, 'chroma-experiment');
   assert.equal(file.version, 1);
+  assert.equal(saved.state.localFlow, false);
+  assert.equal(file.snapshot.state.localFlow, false);
   assert.equal(file.paletteName, 'Carbon black');
   assert.equal(file.presetName, 'Quiet bloom');
   assert.deepEqual(file.snapshot, saved);
@@ -107,13 +109,12 @@ test('initial state round trips exactly with a named versioned wrapper', () => {
 for (const [index, preset] of PRESETS.entries()) {
   test(`preset round trip: ${preset.name}`, () => {
     const saved = initialSnapshot();
-    const { name, subtitle, className, ...settings } = preset;
-    Object.assign(saved.state, settings, { ink: INKS[preset.inkIndex].color, pigments: makePigments(INKS[preset.inkIndex].pigments) });
+    saved.state = presetState(preset);
     saved.selectedPreset = index;
-    saved.brushShape = saved.state.shape;
+    saved.brushShape = saved.state.shape === 'composition' ? 'line' : saved.state.shape;
     const text = serializeExperiment(saved);
     assert.equal(JSON.parse(text).presetName, preset.name);
-    assert.equal(JSON.parse(text).paletteName, INKS[preset.inkIndex].name);
+    assert.equal(JSON.parse(text).paletteName, preset.pigments ? null : INKS[preset.inkIndex].name);
     assert.deepEqual(parseExperiment(text), saved);
   });
 }
@@ -126,6 +127,44 @@ test('edited six-pigment import preserves every setting, mark, path, color and i
   assert.equal(restored.state.imported, PNG);
   assert.equal(Object.hasOwn(restored.state.marks.at(-1), 'text'), false);
   assert.deepEqual(Object.keys(restored.state).sort(), Object.keys(initialState()).sort());
+});
+
+test('legacy effects without local flow keep the original model and all other settings', () => {
+  for (const omitRadius of [false, true]) {
+    const saved = editedSnapshot();
+    if (omitRadius) saved.state.dropRadius = 1;
+    const file = documentFor(saved);
+    delete file.snapshot.state.localFlow;
+    if (omitRadius) delete file.snapshot.state.dropRadius;
+    const restored = parseDocument(file);
+    assert.equal(restored.state.localFlow, false);
+    assert.deepEqual(restored, saved);
+    assert.equal(documentFor(restored).snapshot.state.localFlow, false);
+    assert.equal(documentFor(file.snapshot).snapshot.state.localFlow, false);
+  }
+});
+
+test('enabled local flow round trips with six pigments, imports and independent drop ages', () => {
+  for (const keepSource of [false, true]) {
+    const saved = editedSnapshot();
+    Object.assign(saved.state, { localFlow: true, keepSource });
+    const file = documentFor(saved);
+    assert.equal(file.version, 1);
+    assert.equal(file.snapshot.state.localFlow, true);
+    assert.deepEqual(parseDocument(file), saved);
+  }
+});
+
+test('supplied local flow values must be booleans, never coerced or defaulted', () => {
+  for (const localFlow of [null, 0, 1, -1, 'true', 'false', '', {}, [], [true]]) {
+    const file = documentFor();
+    file.snapshot.state.localFlow = localFlow;
+    assert.throws(() => parseDocument(file), /state\.localFlow must be a boolean/);
+    assert.throws(() => serializeExperiment(file.snapshot), /state\.localFlow must be a boolean/);
+  }
+  const saved = initialSnapshot();
+  saved.state.localFlow = undefined;
+  assert.throws(() => serializeExperiment(saved), /state\.localFlow is required/);
 });
 
 test('dry, empty and generated states, all tools/shapes and one through six pigments round trip', () => {
@@ -174,6 +213,32 @@ test('all water placement modes preserve next-drop coordinates independently of 
     const saved = editedSnapshot();
     saved.state.dropPlacement = dropPlacement;
     assert.deepEqual(parseExperiment(serializeExperiment(saved)), saved);
+  }
+});
+
+test('legacy effects without a radius retain the original water reach', () => {
+  const file = documentFor(editedSnapshot());
+  delete file.snapshot.state.dropRadius;
+  const restored = parseDocument(file);
+  assert.equal(restored.state.dropRadius, 1);
+  assert.deepEqual(restored.state, { ...file.snapshot.state, dropRadius: 1 });
+  assert.equal(JSON.parse(serializeExperiment(restored)).snapshot.state.dropRadius, 1);
+});
+
+test('drop radius round trips at both bounds without changing water amount, progress or ages', () => {
+  for (const dropRadius of [.1, .25, 1, 1.5]) {
+    const saved = editedSnapshot();
+    saved.state.dropRadius = dropRadius;
+    assert.deepEqual(parseExperiment(serializeExperiment(saved)), saved);
+  }
+});
+
+test('invalid drop radii are rejected rather than defaulted or clamped', () => {
+  for (const dropRadius of [0, -.1, .099, 1.501, null, '0.25', true, {}, []]) {
+    const file = documentFor();
+    file.snapshot.state.dropRadius = dropRadius;
+    assert.throws(() => parseDocument(file), /state\.dropRadius/);
+    assert.throws(() => serializeExperiment(file.snapshot), /state\.dropRadius/);
   }
 });
 
@@ -254,7 +319,7 @@ test('every required wrapper, snapshot, state and nested field rejects omission'
   const paths = [
     ...Object.keys(file),
     ...Object.keys(saved).map(key => `snapshot.${key}`),
-    ...Object.keys(saved.state).map(key => `snapshot.state.${key}`),
+    ...Object.keys(saved.state).filter(key => !['dropRadius', 'localFlow'].includes(key)).map(key => `snapshot.state.${key}`),
     ...Object.keys(saved.state.pigments[0]).map(key => `snapshot.state.pigments.0.${key}`),
     ...Object.keys(saved.state.drops[0]).map(key => `snapshot.state.drops.0.${key}`),
     ...Object.keys(saved.state.marks[0]).filter(key => key !== 'text').map(key => `snapshot.state.marks.0.${key}`),
@@ -314,7 +379,7 @@ test('wrong field types, enums, colors, bounds and oversized strings fail at the
 });
 
 test('nonfinite numbers are rejected both before serialization and after JSON numeric overflow', () => {
-  const paths = ['elapsed', 'state.progress', 'state.pigments.0.mobility', 'state.drops.0.age', 'state.marks.0.x', 'state.paths.0.0.y'];
+  const paths = ['elapsed', 'state.progress', 'state.dropRadius', 'state.pigments.0.mobility', 'state.drops.0.age', 'state.marks.0.x', 'state.paths.0.0.y'];
   for (const path of paths) {
     for (const value of [NaN, Infinity, -Infinity]) {
       const saved = editedSnapshot();

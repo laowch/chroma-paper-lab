@@ -18,6 +18,7 @@ export const INKS = [
 ];
 
 export const MAX_PIGMENTS = 6;
+export const DEFAULT_DROP_RADIUS = 1;
 
 export function makePigments(colors) {
   return colors.slice(0, MAX_PIGMENTS).map((color, i) => ({ color, mobility: [1.02,.65,.36,.27,.19,.12][i], spread: [.18,.42,.34][i%3], opacity: [.76,.60,.58][i%3], saturation: 1, direction: 0 }));
@@ -52,8 +53,9 @@ export function initialState() {
   return {
     shape: 'ring', size: 760, stroke: 23, ink: INKS[inkIndex].color, inkIndex,
     pigments: makePigments(INKS[inkIndex].pigments), mode: 'radial', direction: 90,
+    localFlow: false,
     amount: .92, separation: .90, fiber: .58, grain: .34, retention: .96,
-    progress: .88, seed: 2847, layers: [true,true,true], drops: [],
+    progress: .88, seed: 2847, layers: [true,true,true], drops: [], dropRadius: DEFAULT_DROP_RADIUS,
     dropPosition: { x: .5, y: .5 }, dropPlacement: 'center', showDropMarkers: true,
     text: 'a', keepSource: true, paths: [], imported: null, importName: '', importScale: 1,
     randomness: 1, speed: 1, sourceRandomness: 0,
@@ -71,4 +73,24 @@ export const PRESETS = [
   { name: 'Passing through', subtitle: 'Carbon · drifting', shape: 'ring', ink: 'Carbon black', seed: 9542, mode: 'directional', size: 700, stroke: 32, amount: 1.10, className: 'passing' },
   { name: 'A small gesture', subtitle: 'Aubergine · radial', shape: 'line', ink: 'Aubergine', seed: 1982, mode: 'radial', size: 700, stroke: 28, amount: .56, className: 'gesture' },
   { name: 'Open-ended', subtitle: 'Forest · radial', shape: 'arc', ink: 'Forest green', seed: 6782, mode: 'radial', size: 850, stroke: 22, amount: .65, className: 'open' },
+  {
+    name: 'Cloud tides', subtitle: 'Local flow · cream / rose / violet', shape: 'composition', ink: 'Carbon black',
+    localFlow: true, seed: 8162, mode: 'directional', direction: 270, size: 760, stroke: 90,
+    amount: .8, separation: .85, fiber: .7, grain: .62, randomness: 1.35, speed: .4,
+    retention: .035, progress: 0, dropRadius: 1.05, showDropMarkers: false,
+    marks: [{ type: 'line', x: .22, y: .49, endX: .82, endY: .49, stroke: 90, radius: 0, size: 760, points: [] }],
+    drops: [{ x: .28, y: .475, age: 16 }, { x: .50, y: .482, age: 13 }, { x: .67, y: .477, age: 14 }, { x: .78, y: .483, age: 9 }],
+    pigments: [
+      { color: '#fff3c7', mobility: 1.1, spread: .7, opacity: .28, saturation: 1, direction: 0 },
+      { color: '#f277b0', mobility: .65, spread: .45, opacity: .13, saturation: 1, direction: 0 },
+      { color: '#6457cc', mobility: .25, spread: .3, opacity: .12, saturation: 1, direction: 0 },
+    ],
+  },
 ].map(({ink,...preset})=>({...preset,inkIndex:INKS.findIndex(palette=>palette.name===ink)}));
+
+export function presetState(preset) {
+  const settings=structuredClone(Object.fromEntries(Object.entries(preset).filter(([key])=>!['name','subtitle','className'].includes(key))));
+  return {...initialState(),...settings,ink:INKS[preset.inkIndex].color,
+    inkIndex:preset.pigments ? -1 : preset.inkIndex,
+    pigments:settings.pigments ?? makePigments(INKS[preset.inkIndex].pigments)};
+}

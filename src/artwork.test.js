@@ -79,7 +79,7 @@ test('scrubState seeks to both endpoints and the midpoint with or without drops'
 
 test('scrubState is deterministic and history-independent when seeking nonmonotonically', () => {
   const baseline = {
-    ...initialState(), marks: createSeededMarks(7341), offset: { x: .1, y: -.2 },
+    ...initialState(), dropRadius: .3, marks: createSeededMarks(7341), offset: { x: .1, y: -.2 },
     drops: [{ x: .2, y: .3, age: 7 }, { x: .8, y: .7, age: 2 }],
   };
   const state = structuredClone(baseline);
@@ -99,7 +99,7 @@ test('scrubState is deterministic and history-independent when seeking nonmonoto
 
 test('bloom playback ends on the chosen image and holds without extra diffusion', () => {
   for (const progress of [0, .31, .88, 1.06, 1.22]) {
-    const target={...initialState(),progress,marks:createSeededMarks(2847),drops:[{x:.2,y:.7,age:3.125},{x:.8,y:.1,age:17.6},{x:.5,y:.5,age:0}]};
+    const target={...initialState(),progress,dropRadius:.25,marks:createSeededMarks(2847),drops:[{x:.2,y:.7,age:3.125},{x:.8,y:.1,age:17.6},{x:.5,y:.5,age:0}]};
     const original=structuredClone(target), frame=structuredClone(target);
     for(const fraction of [0,.45,.9,1,2,.2,.9]) {
       seekBloom(frame,target,fraction);
@@ -334,7 +334,7 @@ test('random placement samples both axes afresh in the central half of the paper
 
 test('adding a drop uses the selected location and changes only drops and next coordinates', () => {
   for (const dropPlacement of ['top-left', 'bottom-right', 'custom']) {
-    const state = { ...initialState(), dropPlacement, dropPosition: { x: .1, y: .9 }, marks: createSeededMarks(2847) };
+    const state = { ...initialState(), dropRadius: .25, dropPlacement, dropPosition: { x: .1, y: .9 }, marks: createSeededMarks(2847) };
     const before = structuredClone(state);
     const added = addWaterDrop(state);
     const expected = resolveDropPosition(dropPlacement, state.dropPosition);

@@ -1,7 +1,7 @@
 import './style.css';
 import { icon } from './icons.js';
 import { ChromatographyRenderer } from './renderer.js';
-import { initialState, INKS, PRESETS, makePigments, MAX_PIGMENTS, hexToHsl, hslToHex, mixedInk, variationSeeds } from './presets.js';
+import { initialState, INKS, PRESETS, presetState, makePigments, MAX_PIGMENTS, hexToHsl, hslToHex, mixedInk, variationSeeds } from './presets.js';
 import { canvasToPrintPng, downloadBlob, supportsVideoExport, recordCanvasVideo, PNG_SIZE, PNG_DPI } from './export.js';
 import { prepareImportedImage } from './import.js';
 import { paintMask, createSeededMarks, scrubState, seekBloom, MAX_DROPS, DROP_PLACEMENTS, resolveDropPosition, addWaterDrop, removeWaterDrops } from './artwork.js';
@@ -68,7 +68,7 @@ $('#app').innerHTML = `
           ${rangeControl('Size','size',150,1600,10,'px')}${rangeControl('Stroke weight','stroke',5,160,1,'px')}<div id="import-scale-control" hidden>${rangeControl('Import scale','importScale',.25,2,.01,'%')}</div><div class="action-grid"><button class="secondary" data-tool="stamp">${icon('plus',12)} Draw shapes</button><button class="secondary" data-action="clear">Clear paper</button><button class="secondary wide" data-action="compose">${icon('shuffle',12)} Generate composition</button></div>
         </section>
         <section class="panel-section"><div class="section-heading"><span><span class="number">02</span> A drop of ink</span>${icon('drop',13)}</div><div class="ink-swatches" role="group" aria-label="Ink palettes">${INKS.map((ink,i)=>`<button class="ink-swatch ${i===state.inkIndex?'active':''}" data-ink="${i}" aria-label="${ink.name}: ${ink.pigments.join(', ')}" aria-pressed="${i===state.inkIndex}" title="${ink.name} · ${ink.pigments.join(' / ')}"><span class="ink-preview" aria-hidden="true">${ink.pigments.map(color=>`<span style="background:${color}"></span>`).join('')}</span><span class="ink-swatch-name">${ink.name}</span></button>`).join('')}</div><div class="ink-caption"><span id="ink-name">Carbon black</span><span id="ink-hex">#282925</span></div><div class="active-pigments" id="active-pigments" role="img" aria-label="Active pigment colors"></div><p class="ink-note">${icon('spark',12)}<span>One ink. A hidden world of colors.<br/>Mix between 1 and 6 pigment components.</span></p></section>
-        <section class="panel-section presets-section"><div class="section-heading"><span><span class="number">03</span> A little inspiration</span></div><div class="preset-list">${PRESETS.slice(0,6).map((preset,i)=>`<button class="preset ${i===selectedPreset?'active':''}" data-preset="${i}" aria-pressed="${i===selectedPreset}"><img class="preset-art" data-thumbnail="${i}" alt="" /><div><div class="preset-name">${preset.name}</div><div class="preset-subtitle">${preset.subtitle}</div></div><span class="preset-check">${i===selectedPreset?icon('check',12):''}</span></button>`).join('')}</div><button class="all-presets" data-action="library">Explore all experiments ${icon('right',10)}</button></section>
+        <section class="panel-section presets-section"><div class="section-heading"><span><span class="number">03</span> A little inspiration</span></div><div class="preset-list">${PRESETS.map((preset,i)=>i>=6&&!preset.localFlow ? '' : `<button class="preset ${i===selectedPreset?'active':''}" data-preset="${i}" aria-pressed="${i===selectedPreset}"><img class="preset-art" data-thumbnail="${i}" alt="" /><div><div class="preset-name">${preset.name}</div><div class="preset-subtitle">${preset.subtitle}</div></div><span class="preset-check">${i===selectedPreset?icon('check',12):''}</span></button>`).join('')}</div><button class="all-presets" data-action="library">Explore all experiments ${icon('right',10)}</button></section>
         <div class="panel-footnote">A little less control.<br/>A little more wonder.</div>
       </aside>
       <section class="studio" aria-label="Chromatography canvas">
@@ -81,8 +81,10 @@ $('#app').innerHTML = `
         <div class="workspace-hint">${icon('drop',13)}<span id="canvas-hint">Click anywhere on the paper to add a little water.</span><kbd>W</kbd></div>
       </section>
       <aside class="panel settings-panel" aria-label="Diffusion settings"><div class="settings-heading"><span>The art of diffusion</span><button class="icon-button" data-action="reset" aria-label="Reset diffusion settings" title="Reset diffusion settings">${icon('reset',14)}</button></div>
-        <section class="panel-section"><div class="section-heading"><span>Flow direction</span><span class="tiny-tag">FOLLOW THE WATER</span></div><div class="segmented"><button data-flow="radial" class="active">${icon('ring',11)} Radial</button><button data-flow="directional">${icon('arrow',11)} Directional</button></div><div class="direction-controls" id="direction-controls" hidden><span class="direction-dial">${icon('arrow',14)}</span>${rangeControl('Angle','direction',0,360,1,'°')}</div>${rangeControl('Water amount','amount',.1,1.5,.01,'%')}
-          <section class="water-drops" aria-labelledby="water-drops-heading"><div class="section-heading"><span id="water-drops-heading">Water drops</span><output id="drop-count" aria-label="Water drop count" aria-live="polite">0 / ${MAX_DROPS}</output></div><label class="drop-placement-label" for="drop-placement">Next drop position</label><select id="drop-placement" aria-describedby="drop-help">${DROP_PLACEMENTS.map(option=>`<option value="${option.value}">${option.label}</option>`).join('')}<option value="random">Random · 25–75%</option><option value="custom">Custom coordinates</option></select><div class="drop-coordinates">${['x','y'].map(axis=>`<label for="drop-${axis}">${axis.toUpperCase()} %<input id="drop-${axis}" data-drop-coordinate="${axis}" type="number" min="0" max="100" step="0.1" inputmode="decimal" aria-label="Next drop ${axis.toUpperCase()} percent" /></label>`).join('')}</div><button class="secondary add-drop" data-action="add-water">${icon('drop',12)} Add a drop</button><p class="drop-last" id="drop-last" aria-live="polite">Last drop: none</p><div class="action-grid"><button class="secondary" data-action="remove-last">Remove last</button><button class="secondary" data-action="clear-water">Clear water</button></div><label class="checkbox-control"><input id="show-drop-markers" type="checkbox" checked /> Show numbered markers</label><p class="drop-help" id="drop-help">Choose a position or edit X/Y, then add. Origin: top left. Random: a new point within 25–75% each time. Water-tool paper clicks add and set Custom. Only the newest 8 drops stay. Markers never export.</p></section>
+        <section class="panel-section"><div class="section-heading"><span>Flow direction</span><span class="tiny-tag">FOLLOW THE WATER</span></div><div class="segmented"><button data-flow="radial" class="active">${icon('ring',11)} Radial</button><button data-flow="directional">${icon('arrow',11)} Directional</button></div><div class="direction-controls" id="direction-controls" hidden><span class="direction-dial">${icon('arrow',14)}</span>${rangeControl('Angle','direction',0,360,1,'°')}</div>
+          <label class="checkbox-control"><input id="local-flow" type="checkbox" aria-describedby="local-flow-help local-flow-unavailable" disabled /> Local pigment flow</label><p class="drop-help" id="local-flow-help">Experimental · Simulates water, pigment transport and settling. Off preserves the original model.</p><p class="drop-help" id="local-flow-unavailable" hidden>Local pigment flow is unavailable: this renderer does not support it.</p>
+          ${rangeControl('Water amount','amount',.1,1.5,.01,'%')}
+          <section class="water-drops" aria-labelledby="water-drops-heading"><div class="section-heading"><span id="water-drops-heading">Water drops</span><output id="drop-count" aria-label="Water drop count" aria-live="polite">0 / ${MAX_DROPS}</output></div>${rangeControl('Drop influence radius','dropRadius',.1,1.5,.01,'%','Localized|Wide')}<p class="drop-help">Applies to all drops. 100% is the standard radius for the selected model, not paper width. Base water progress is unchanged.</p><label class="drop-placement-label" for="drop-placement">Next drop position</label><select id="drop-placement" aria-describedby="drop-help">${DROP_PLACEMENTS.map(option=>`<option value="${option.value}">${option.label}</option>`).join('')}<option value="random">Random · 25–75%</option><option value="custom">Custom coordinates</option></select><div class="drop-coordinates">${['x','y'].map(axis=>`<label for="drop-${axis}">${axis.toUpperCase()} %<input id="drop-${axis}" data-drop-coordinate="${axis}" type="number" min="0" max="100" step="0.1" inputmode="decimal" aria-label="Next drop ${axis.toUpperCase()} percent" /></label>`).join('')}</div><button class="secondary add-drop" data-action="add-water">${icon('drop',12)} Add a drop</button><p class="drop-last" id="drop-last" aria-live="polite">Last drop: none</p><div class="action-grid"><button class="secondary" data-action="remove-last">Remove last</button><button class="secondary" data-action="clear-water">Clear water</button></div><label class="checkbox-control"><input id="show-drop-markers" type="checkbox" checked /> Show numbered markers</label><p class="drop-help" id="drop-help">Choose a position or edit X/Y, then add. Origin: top left. Random: a new point within 25–75% each time. Water-tool paper clicks add and set Custom. Only the newest 8 drops stay. Markers never export.</p></section>
           ${rangeControl('Color separation','separation',0,1,.01,'%')}${rangeControl('Paper fibers','fiber',0,1,.01,'%')}${rangeControl('Pigment granulation','grain',0,1,.01,'%')}<details class="advanced-controls"><summary>More control</summary>${rangeControl('Flow randomness','randomness',0,2,.01,'%')}${rangeControl('Travel speed','speed',0,2,.01,'%')}${rangeControl('Original density','retention',0,1,.01,'%')}${rangeControl('Source distortion','sourceRandomness',0,1,.01,'%')}</details></section>
         <section class="panel-section"><div class="section-heading"><span>Pigment components</span><span class="tiny-tag" id="pigment-count">3 COLORS</span></div><div class="component-count"><button class="icon-button" data-action="remove-pigment" aria-label="Remove pigment">${icon('minus',12)}</button><span>1–6 components</span><button class="icon-button" data-action="add-pigment" aria-label="Add pigment">${icon('plus',12)}</button></div><div id="pigment-components"></div><div class="mini-help">${icon('help',11)}<span>Different pigments travel at different speeds.<br/>Open a component to make it your own.</span></div></section>
         <section class="panel-section layers-section"><div class="section-heading"><span class="layers-heading">Layers</span><span class="tiny-tag">THE ANATOMY OF A BLOOM</span></div>${['Original mark','Separated pigments','Water diffusion'].map((label,i)=>`<div class="layer" data-layer-row="${i}"><span class="layer-thumbnail ${['original','pigment','diffusion'][i]}"></span><span>${label}</span><button class="icon-button" data-layer="${i}" aria-label="Toggle ${label.toLowerCase()}" aria-pressed="true" title="Show / hide ${label.toLowerCase()}">${icon('eye',14)}</button></div>`).join('')}</section>
@@ -96,7 +98,7 @@ $('#app').innerHTML = `
   <input id="experiment-input" type="file" accept=".json,application/json" hidden />
   <div class="toast" role="status" aria-live="polite"></div>
   <dialog class="dialog" id="library-dialog"><div class="dialog-head"><div><h2>A cabinet of curiosities.</h2><p class="dialog-intro">A few starting points. No two experiments end the same.</p></div><button class="icon-button" data-close aria-label="Close library">${icon('close')}</button></div><div class="library-grid">${PRESETS.map((preset,i)=>`<button class="library-preset" data-preset="${i}"><img data-thumbnail="${i}" alt="${preset.name} chromatography study" /><div class="preset-name">${preset.name}</div><div class="preset-subtitle">${preset.subtitle}</div></button>`).join('')}</div></dialog>
-  <dialog class="dialog" id="help-dialog"><div class="dialog-head"><div><h2>A mark is only the beginning.</h2><p class="dialog-intro">A small guide to getting beautifully lost.</p></div><button class="icon-button" data-close aria-label="Close guide">${icon('close')}</button></div><div class="guide-steps"><div class="guide-step"><h3>Make your mark</h3><p>Choose Draw shapes to add marks, or draw freehand directly on the paper. Drag to set a shape’s size. Move the artwork with V, clear it, or generate a composition. Imported images are cropped to their foreground.</p></div><div class="guide-step"><h3>Meet your pigments</h3><p>Each ink contains one to six components. Edit colors using HSL or HEX, or add and remove pigments. Adjust their colors, mobility, spread, saturation, and direction independently.</p></div><div class="guide-step"><h3>Just add water</h3><p>Use Water drops beside Water amount to choose the center, an edge, a corner, or precise X/Y percentages from the top-left origin. Choosing a position does not add water until you press Add a drop. Random chooses a new point within 25–75% each time. With the water tool selected, paper clicks add at that point and set the next position to Custom. Numbered guides appear only in the water tool and never in PNGs or videos; hide them with Show numbered markers. The newest eight drops are kept. Remove last or Clear water preserves your marks, ink and base progress, and can be undone.</p></div><div class="guide-step"><h3>Keep a little wonder</h3><p>Scrub Water progress, strengthen separation with Purify, or compare ten variations. Export a ${PNG_SIZE} × ${PNG_SIZE} PNG with ${PNG_DPI} DPI metadata, on white or transparent paper, or record a five-second MP4 / WebM that ends on your current image. Save effect downloads an editable JSON file with your settings, marks and imported image; Load effect restores it later for editing or video export. Loading can be undone.</p></div></div><h3>Not a blur. A separation.</h3><p>This is a generative interpretation of paper chromatography, not a laboratory fluid solver. Component-specific transport, capillary noise, local wetting fronts, and granular deposition create irregular bands while preserving the original mark. Uploaded ink softens and releases color as water reaches it, while each pigment travels independently.</p><div class="shortcut-row"><span>W · Water</span><span>B · Draw</span><span>V · Select</span><span>Space · Play / pause</span><span>⌘ Z · Undo</span><span>⌘ ⇧ Z · Redo</span></div></dialog>
+  <dialog class="dialog" id="help-dialog"><div class="dialog-head"><div><h2>A mark is only the beginning.</h2><p class="dialog-intro">A small guide to getting beautifully lost.</p></div><button class="icon-button" data-close aria-label="Close guide">${icon('close')}</button></div><div class="guide-steps"><div class="guide-step"><h3>Make your mark</h3><p>Choose Draw shapes to add marks, or draw freehand directly on the paper. Drag to set a shape’s size. Move the artwork with V, clear it, or generate a composition. Imported images are cropped to their foreground.</p></div><div class="guide-step"><h3>Meet your pigments</h3><p>Each ink contains one to six components. Edit colors using HSL or HEX, or add and remove pigments. Adjust their colors, mobility, spread, saturation, and direction independently.</p></div><div class="guide-step"><h3>Just add water</h3><p>Use Water drops beside Water amount to choose the center, an edge, a corner, or precise X/Y percentages from the top-left origin. Drop influence radius scales all drops together from 10% to 150%; 100% is the standard radius for the selected model, not paper width. It changes neither water amount nor base water progress. Choosing a position does not add water until you press Add a drop. Random chooses a new point within 25–75% each time. With the water tool selected, paper clicks add at that point and set the next position to Custom. Numbered guides appear only in the water tool and never in PNGs or videos; hide them with Show numbered markers. The newest eight drops are kept. Remove last or Clear water preserves your marks, ink and base progress, and can be undone.</p></div><div class="guide-step"><h3>Keep a little wonder</h3><p>Scrub Water progress, strengthen separation with Purify, or compare ten variations. Export a ${PNG_SIZE} × ${PNG_SIZE} PNG with ${PNG_DPI} DPI metadata, on white or transparent paper, or record a five-second MP4 / WebM that ends on your current image. Save effect downloads an editable JSON file with your settings, marks and imported image; Load effect restores it later for editing or video export. Loading can be undone.</p></div></div><h3>Not a blur. A separation.</h3><p>This is a generative interpretation of paper chromatography, not a laboratory fluid solver. Component-specific transport, capillary noise, local wetting fronts, and granular deposition create irregular bands while preserving the original mark. Uploaded ink softens and releases color as water reaches it, while each pigment travels independently.</p><p>Local pigment flow is an experimental simulation of water, pigment transport and settling. It is off by default to preserve the original model and older effects.</p><div class="shortcut-row"><span>W · Water</span><span>B · Draw</span><span>V · Select</span><span>Space · Play / pause</span><span>⌘ Z · Undo</span><span>⌘ ⇧ Z · Redo</span></div></dialog>
   <dialog class="dialog" id="export-dialog"><div class="dialog-head"><div><h2>A little piece of possibility.</h2><p class="dialog-intro">Take your experiment out into the world.</p></div><button class="icon-button" data-close aria-label="Close export dialog">${icon('close')}</button></div><div class="export-options"><button class="export-option" data-export="white">${icon('download',24)}<div><strong>White paper</strong><span>PNG · ${PNG_SIZE} × ${PNG_SIZE} px · ${PNG_DPI} DPI · RGB</span></div>${icon('right',16)}</button><button class="export-option" data-export="transparent">${icon('layers',24)}<div><strong>Just the pigment</strong><span>Transparent PNG · ${PNG_SIZE} × ${PNG_SIZE} px · ${PNG_DPI} DPI</span></div>${icon('right',16)}</button><button class="export-option" data-export="video">${icon('play',24)}<div><strong>A bloom in motion</strong><span>5 seconds · 1920 × 1920 px · 25 FPS · MP4 / WebM</span></div>${icon('right',16)}</button></div><p id="export-progress" role="status"></p><button class="secondary" data-action="cancel-export" hidden>Cancel recording</button><p class="export-note">Print-ready resolution, with ${PNG_DPI} DPI embedded in the file. Video ends on the current image and holds it without further diffusion. Use Save effect to keep an editable JSON file, including imported artwork. Everything stays on your device.</p></dialog>
 `;
 
@@ -135,7 +137,11 @@ function formatValue(value,unit) {
 function requestRender() {
   if(rendering || !renderer) return;
   rendering=true;
-  requestAnimationFrame(() => { renderer.render(state); rendering=false; });
+  requestAnimationFrame(() => {
+    try { renderer.render(state); }
+    catch(error) { stopAnimation();toast(`Could not render this experiment: ${error.message}`); }
+    finally { rendering=false; }
+  });
 }
 function sync() {
   const components=$('#pigment-components');
@@ -165,6 +171,15 @@ function sync() {
   $$('[data-tool]').forEach(button=>{ const active=button.dataset.tool===tool; button.classList.toggle('active',active); button.setAttribute('aria-pressed',active); });
   $$('[data-input-mode]').forEach(button=>button.classList.toggle('active',button.dataset.inputMode===inputMode));
   $$('[data-flow]').forEach(button=>button.classList.toggle('active',button.dataset.flow===state.mode));
+  $('#local-flow').checked=state.localFlow;
+  $('#local-flow').disabled=!renderer?.supportsLocalFlow;
+  $('#local-flow').setAttribute('aria-describedby',renderer?.supportsLocalFlow ? 'local-flow-help' : 'local-flow-help local-flow-unavailable');
+  $('#local-flow-unavailable').hidden=!!renderer?.supportsLocalFlow;
+  $$('[data-preset]').forEach(button=>{
+    const unavailable=PRESETS[Number(button.dataset.preset)].localFlow&&!renderer?.supportsLocalFlow;
+    button.disabled=!!unavailable;
+    button.title=unavailable ? 'Requires Local pigment flow support.' : '';
+  });
   $$('[data-ink]').forEach(button=>{const active=Number(button.dataset.ink)===state.inkIndex;button.classList.toggle('active',active);button.setAttribute('aria-pressed',active);});
   $$('[data-layer]').forEach(button=>{const visible=state.layers[Number(button.dataset.layer)];button.innerHTML=icon(visible?'eye':'hidden',14);button.setAttribute('aria-pressed',visible);button.closest('.layer').classList.toggle('is-hidden',!visible);});
   $$('[data-component-dot]').forEach(dot=>dot.style.setProperty('--pigment',state.pigments[Number(dot.dataset.componentDot)].color));
@@ -262,14 +277,12 @@ function updateMask(target=renderer, sample=state, image=importedImage) {
 }
 
 function applyPreset(index) {
+  if(PRESETS[index].localFlow&&!renderer?.supportsLocalFlow){toast('This experiment requires Local pigment flow support.');return;}
   change(()=>{
     stopAnimation();
-    const preset=PRESETS[index];
-    state={...initialState(),...Object.fromEntries(Object.entries(preset).filter(([key])=>!['name','subtitle','className'].includes(key)))};
-    state.ink=INKS[preset.inkIndex].color;
-    state.pigments=makePigments(INKS[preset.inkIndex].pigments);
+    state=presetState(PRESETS[index]);
     selectedPreset=index;
-    tool='water';brushShape=state.shape;inputMode='draw';hasBloomed=false;elapsed=0;hslEditing=null;
+    tool='water';brushShape=state.shape==='composition' ? 'line' : state.shape;inputMode='draw';hasBloomed=false;elapsed=0;hslEditing=null;
     importedImage=null;
     updateMask();
     $('#experiment-status').textContent='A moment of possibility';
@@ -439,6 +452,10 @@ $$('[data-ink]').forEach(button=>button.addEventListener('click',()=>change(()=>
   const index=Number(button.dataset.ink);state.inkIndex=index;state.ink=INKS[index].color;state.pigments=makePigments(INKS[index].pigments);selectedPreset=-1;hslEditing=null;
 })));
 $$('[data-flow]').forEach(button=>button.addEventListener('click',()=>change(()=>{state.mode=button.dataset.flow;selectedPreset=-1;})));
+$('#local-flow').addEventListener('change',event=>{
+  if(!renderer?.supportsLocalFlow){sync();return;}
+  change(()=>{state.localFlow=event.target.checked;selectedPreset=-1;});
+});
 $('#drop-placement').addEventListener('change',event=>change(()=>{
   state.dropPlacement=event.target.value;
   if(state.dropPlacement!=='random')state.dropPosition=resolveDropPosition(state.dropPlacement,state.dropPosition);
@@ -513,7 +530,7 @@ const actions={
   'load-experiment':()=>$('#experiment-input').click(),
   reset:()=>change(()=>{
     const defaults=initialState();
-    for(const key of ['amount','separation','fiber','grain','mode','direction','retention','layers','progress','drops','dropPosition','dropPlacement','showDropMarkers','randomness','speed','sourceRandomness'])state[key]=defaults[key];
+    for(const key of ['amount','separation','fiber','grain','mode','direction','localFlow','retention','layers','progress','drops','dropRadius','dropPosition','dropPlacement','showDropMarkers','randomness','speed','sourceRandomness'])state[key]=defaults[key];
     state.pigments=makePigments(state.pigments.map(p=>p.color));hslEditing=null;
     stopAnimation();hasBloomed=false;elapsed=0;updatePlayButton();toast('Diffusion reset. A fresh possibility.');
   }),
@@ -576,6 +593,7 @@ async function loadExperiment(file) {
   let loaded=false;
   try {
     const saved=parseExperiment(await file.text());
+    if(saved.state.localFlow&&!renderer.supportsLocalFlow)throw new Error('This effect requires Local pigment flow, which this renderer does not support.');
     await restore(saved);
     undoStack.push(previous);if(undoStack.length>30)undoStack.shift();redoStack.length=0;
     $('#variations-panel').hidden=true;variations=[];
@@ -707,13 +725,20 @@ function makeThumbnails() {
   if(!renderer)return;
   const canvas=document.createElement('canvas');
   const preview=new ChromatographyRenderer(canvas);
-  PRESETS.forEach((preset,index)=>{
-    const sample={...initialState(),...preset,ink:INKS[preset.inkIndex].color,pigments:makePigments(INKS[preset.inkIndex].pigments)};
-    preview.render(sample,260);
-    thumbnails[index]=canvas.toDataURL('image/png');
-  });
-  $$('[data-thumbnail]').forEach(img=>img.src=thumbnails[Number(img.dataset.thumbnail)]);
-  preview.dispose();
+  try {
+    PRESETS.forEach((preset,index)=>{
+      if(preset.localFlow&&!preview.supportsLocalFlow)return;
+      const sample=presetState(preset);
+      updateMask(preview,sample,null);
+      preview.render(sample,260);
+      thumbnails[index]=canvas.toDataURL('image/png');
+    });
+    $$('[data-thumbnail]').forEach(img=>{
+      const src=thumbnails[Number(img.dataset.thumbnail)];
+      if(src)img.src=src;else img.hidden=true;
+    });
+  } catch(error) { toast(`Could not render experiment thumbnails: ${error.message}`); }
+  finally { preview.dispose(); }
 }
 
 sync();

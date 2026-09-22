@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChromatographyRenderer, distanceTransform, hexToRgb, SHAPES } from './renderer.js';
 import {
-  initialState, makePigments, PRESETS, INKS, MAX_PIGMENTS,
+  initialState, presetState, makePigments, PRESETS, INKS, MAX_PIGMENTS,
   hexToHsl, hslToHex, mixedInk, variationSeeds,
 } from './presets.js';
 
@@ -123,7 +123,7 @@ test('initial state retains the calibrated geometry and diffusion defaults', () 
   const state = initialState();
   const defaults = {
     shape: 'ring', size: 760, stroke: 23, ink: '#282925', inkIndex: INKS.findIndex(ink => ink.name === 'Carbon black'),
-    mode: 'radial', direction: 90, amount: .92, separation: .90,
+    mode: 'radial', direction: 90, amount: .92, separation: .90, dropRadius: 1,
     fiber: .58, grain: .34, retention: .96, progress: .88, seed: 2847,
     layers: [true, true, true], drops: [], text: 'a', keepSource: true, paths: [], imported: null,
   };
@@ -215,6 +215,29 @@ test('initial states have isolated marks and offsets', () => {
   assert.deepEqual(initialState().offset, { x: 0, y: 0 });
 });
 
+test('render uploads radius independently of water amount and each drop age at preview and export sizes', () => {
+  const uniforms = new Map();
+  const gl = { getUniformLocation: (_, name) => name, viewport() {}, useProgram() {}, drawArrays() {}, bindFramebuffer() {}, bindBuffer() {}, enableVertexAttribArray() {}, vertexAttribPointer() {}, activeTexture() {}, bindTexture() {} };
+  for (const method of ['uniform1f', 'uniform1i', 'uniform2f', 'uniform3fv', 'uniform4fv']) {
+    gl[method] = (name, ...values) => uniforms.set(name, values);
+  }
+  const renderer = Object.assign(Object.create(ChromatographyRenderer.prototype), { gl, canvas: {}, uniforms: {} });
+  for (const dropRadius of [.1, .25, 1, 1.5]) {
+    const state = { ...initialState(), dropRadius, drops: [{ x: .25, y: .5, age: 2 }, { x: .75, y: .5, age: 22 }] };
+    const before = structuredClone(state);
+    for (const resolution of [1100, 1920, 4000]) {
+      renderer.render(state, resolution);
+      assert.deepEqual(uniforms.get('dropRadius'), [dropRadius]);
+      assert.deepEqual(uniforms.get('amount'), [state.amount]);
+      assert.deepEqual(uniforms.get('progress'), [state.progress]);
+      assert.deepEqual(uniforms.get('dropCount'), [2]);
+      assert.deepEqual([...uniforms.get('drops[0]')[0].slice(0, 6)], [.25, .5, 2, .75, .5, 22]);
+      assert.equal(renderer.canvas.width, resolution);
+      assert.deepEqual(state, before);
+    }
+  }
+});
+
 test('imported texture filtering preserves premultiplied color and restores upload flags', () => {
   const calls = [];
   const gl = Object.fromEntries(['TEXTURE0', 'TEXTURE1', 'TEXTURE_2D', 'TEXTURE_MIN_FILTER', 'TEXTURE_MAG_FILTER', 'LINEAR', 'RGBA', 'RG32F', 'RG', 'FLOAT', 'UNSIGNED_BYTE', 'UNPACK_FLIP_Y_WEBGL', 'UNPACK_PREMULTIPLY_ALPHA_WEBGL'].map(key => [key, key]));
@@ -224,8 +247,9 @@ test('imported texture filtering preserves premultiplied color and restores uplo
   const data = new Uint8ClampedArray(768 * 768 * 4);
   data.set([255, 255, 255, 128], (384 * 768 + 384) * 4);
   const canvas = { getContext: () => ({ getImageData: () => ({ data }) }) };
-  const renderer = Object.assign(Object.create(ChromatographyRenderer.prototype), { gl, mask: 'mask', source: 'source' });
+  const renderer = Object.assign(Object.create(ChromatographyRenderer.prototype), { gl, mask: 'mask', source: 'source', maskRevision: 0 });
   renderer.setMask(canvas, canvas, true);
+  assert.equal(renderer.maskRevision, 1);
   const uploads = calls.filter(([name]) => name === 'texImage2D');
   const field = uploads[0].at(-1);
   assert.ok(field[(384 * 768 + 384) * 2] < 0, 'a translucent white source still releases pigment');
@@ -267,7 +291,7 @@ test('three poster palettes lead the ink list with distinct source and diffusion
 });
 
 test('each poster palette has a leading inspiration demo with reproducible settings', () => {
-  assert.equal(PRESETS.length, 9);
+  assert.equal(PRESETS.length, 10);
   assert.deepEqual(PRESETS.slice(0, 3).map(preset => preset.name), ['Cyan eclipse', 'Sulfur halo', 'Patina trace']);
   assert.deepEqual(PRESETS.slice(0, 3).map(preset => preset.inkIndex), [0, 1, 2]);
   assert.equal(new Set(PRESETS.slice(0, 3).map(preset => preset.shape)).size, 3);
@@ -279,8 +303,47 @@ test('each poster palette has a leading inspiration demo with reproducible setti
 });
 
 test('the six original experiments still resolve to their original palettes', () => {
-  assert.deepEqual(PRESETS.slice(3).map(preset => [preset.name, INKS[preset.inkIndex].name]), [
+  assert.deepEqual(PRESETS.slice(3, 9).map(preset => [preset.name, INKS[preset.inkIndex].name]), [
     ['Quiet bloom', 'Carbon black'], ['Blue hour', 'Midnight blue'], ['Soft signal', 'Persimmon'],
     ['Passing through', 'Carbon black'], ['A small gesture', 'Aubergine'], ['Open-ended', 'Forest green'],
   ]);
+});
+
+test('Cloud tides preserves editable custom pigments and isolates preset geometry', () => {
+  const preset = PRESETS.find(p => p.name === 'Cloud tides');
+  const before = structuredClone(preset);
+  const a = presetState(preset), b = presetState(preset);
+  assert.equal(a.localFlow, true);
+  assert.equal(initialState().localFlow, false);
+  assert.equal(a.inkIndex, -1);
+  assert.deepEqual(a.pigments, preset.pigments);
+  assert.equal(a.marks[0].type, 'line');
+  assert.equal(new Set(a.drops.map(d => d.age)).size, 4);
+  a.pigments[0].color = '#ffffff';
+  a.marks[0].x = 0;
+  a.drops[0].age = 22;
+  assert.deepEqual(preset, before);
+  assert.deepEqual(b, presetState(preset));
+  for (const classic of PRESETS.slice(0, 9)) {
+    const state = presetState(classic);
+    assert.equal(state.localFlow, false);
+    assert.deepEqual(state.pigments, makePigments(INKS[classic.inkIndex].pigments));
+  }
+});
+
+test('local mode delegates preview and export sizes without running the classic program', () => {
+  const calls = [];
+  const renderer = Object.assign(Object.create(ChromatographyRenderer.prototype), {
+    canvas: {}, gl: {}, supportsLocalFlow: true,
+    localFlow: { render: (...args) => calls.push(args) },
+  });
+  const state = { ...initialState(), localFlow: true };
+  for (const resolution of [1100, 1920, 4000]) {
+    renderer.render(state, resolution, true);
+    assert.deepEqual(calls.at(-1), [state, renderer, resolution, true]);
+    assert.equal(renderer.canvas.width, resolution);
+  }
+  renderer.supportsLocalFlow = false;
+  assert.throws(() => renderer.render(state), /half-float/);
+  assert.equal(calls.length, 3);
 });

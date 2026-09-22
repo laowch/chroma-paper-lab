@@ -1,16 +1,18 @@
+import { LocalFlow } from './local-flow.js';
+
 const vertexSource = `#version 300 es
 in vec2 position;
 out vec2 uv;
 void main() { uv = position * .5 + .5; gl_Position = vec4(position, 0., 1.); }
 `;
 
-const fragmentSource = `#version 300 es
+const fieldSource = `#version 300 es
 precision highp float;
 in vec2 uv;
 out vec4 fragColor;
 uniform vec2 resolution;
 uniform float seed, size, stroke, amount, separation, fiber, grain, progress, direction, retention;
-uniform float randomness, speed, sourceRandomness;
+uniform float randomness, speed, sourceRandomness, dropRadius;
 uniform vec2 sourceOffset;
 uniform int shape, mode, dropCount, pigmentCount;
 uniform bool hasMarks;
@@ -132,7 +134,9 @@ float elution(float distance, float center, float width) {
   float z = abs(distance-center)/max(.0004,width*shoulder);
   return exp(-pow(z,1.65));
 }
-void main() {
+`;
+
+const fragmentSource = fieldSource + `void main() {
   vec2 p = vec2(uv.x, 1.-uv.y);
   vec2 q = sourcePosition(p)-.5-sourceOffset;
   float originalD = sdf(p);
@@ -150,7 +154,7 @@ void main() {
     if(i >= dropCount) break;
     vec2 v = p-drops[i].xy;
     float age = drops[i].z;
-    float reach = sqrt(max(0.,age))*.10;
+    float reach = sqrt(max(0.,age))*.10*dropRadius;
     float wetDistance = length(v)/permeability - fiberDisplacement*fiber;
     float wet = (1.-smoothstep(reach*.38,max(.001,reach),wetDistance))*min(age*.25,1.);
     moisture += wet;
@@ -192,6 +196,11 @@ void main() {
     if(mode==0) {
       density = elution(d,distanceMoved,width);
       dilute = elution(d,distanceMoved*.88,width*2.4)*.10;
+      if(shape==8 && keepSource) {
+        float trailEnd=max(.0004,distanceMoved-width*1.35);
+        float trail=(1.-smoothstep(0.,trailEnd,max(d,0.)))*(1.-readSource(sourcePosition(p)).a);
+        density=max(density,trail*.5);
+      }
       float deposits = .78 + noise(sourcePoint*89.+p*33.+float(i)*19.)*.40;
       density *= deposits;
     } else {
@@ -256,7 +265,23 @@ void main() {
     if(keepSource) {
       if(source.a>.00001) inkColor=source.rgb/source.a;
       if(carried.a>.00001) carrierColor=carried.rgb/carried.a;
-      vec4 retained=readSource(sourcePosition(p));
+      vec2 retainedPosition=sourcePosition(p);
+      vec4 retained=readSource(retainedPosition);
+      float edgeWidth=8./768.;
+      if(t>0. && layers.y>0. && retained.a>.00001 && originalD>-edgeWidth) {
+        vec2 gradient=vec2(readMask(retainedPosition+vec2(.001,0)).r-readMask(retainedPosition-vec2(.001,0)).r,
+          readMask(retainedPosition+vec2(0,.001)).r-readMask(retainedPosition-vec2(0,.001)).r);
+        vec4 interior=readSource(retainedPosition-normalize(gradient+vec2(.00001))*(originalD+edgeWidth));
+        if(interior.a>=retained.a) {
+          vec3 edgeColor=retained.rgb/retained.a, interiorColor=interior.rgb/interior.a;
+          vec3 toWhite=vec3(1.)-interiorColor;
+          float matte=clamp(dot(edgeColor-interiorColor,toWhite)/max(.00001,dot(toWhite,toWhite)),0.,1.);
+          float error=length(edgeColor-mix(interiorColor,vec3(1.),matte));
+          // Remove white-matte contamination only at wet edges, without changing source coverage.
+          float clean=smoothstep(0.,.025,t)*smoothstep(.002,.015,matte)*(1.-smoothstep(.025,.06,error));
+          retained.rgb=mix(retained.rgb,interiorColor*retained.a,clean);
+        }
+      }
       // Only excess wet coverage extends the source, without diluting or doubling its native alpha.
       float bleed=max(0.,original-retained.a);
       original=retained.a+bleed;
@@ -307,6 +332,8 @@ export class ChromatographyRenderer {
     const gl = canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: true, alpha: true, premultipliedAlpha: false });
     if (!gl) throw new Error('This experiment needs WebGL 2. Please enable hardware acceleration or use a recent browser.');
     this.gl = gl;
+    this.supportsLocalFlow = !!gl.getExtension('EXT_color_buffer_float');
+    this.maskRevision = 0;
     this.program = gl.createProgram();
     const vs = compile(gl, gl.VERTEX_SHADER, vertexSource);
     const fs = compile(gl, gl.FRAGMENT_SHADER, fragmentSource);
@@ -320,7 +347,7 @@ export class ChromatographyRenderer {
     const buffer = this.buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
-    const pos = gl.getAttribLocation(this.program, 'position');
+    const pos = this.position = gl.getAttribLocation(this.program, 'position');
     gl.enableVertexAttribArray(pos);
     gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
     this.uniforms = {};
@@ -383,14 +410,27 @@ export class ChromatographyRenderer {
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,sourceCanvas);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+    this.maskRevision++;
   }
 
   render(state, resolution = 1100, transparent = false) {
     const gl = this.gl;
     if(this.canvas.width !== resolution) this.canvas.width = this.canvas.height = resolution;
+    if(state.localFlow) {
+      if(!this.supportsLocalFlow) throw new Error('Local pigment flow needs renderable half-float textures.');
+      this.localFlow ??= new LocalFlow(gl, fieldSource, SHAPES);
+      this.localFlow.render(state, this, resolution, transparent);
+      return;
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
     gl.viewport(0,0,resolution,resolution);
     gl.useProgram(this.program);
-    const scalar = { seed:state.seed, size:state.size, stroke:state.stroke, amount:state.amount, separation:state.separation, fiber:state.fiber, grain:state.grain, progress:state.progress, direction:state.direction*Math.PI/180, retention:state.retention, randomness:state.randomness, speed:state.speed, sourceRandomness:state.sourceRandomness };
+    gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);
+    gl.enableVertexAttribArray(this.position);
+    gl.vertexAttribPointer(this.position,2,gl.FLOAT,false,0,0);
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,this.mask);
+    gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,this.source);
+    const scalar = { seed:state.seed, size:state.size, stroke:state.stroke, amount:state.amount, separation:state.separation, fiber:state.fiber, grain:state.grain, progress:state.progress, direction:state.direction*Math.PI/180, retention:state.retention, randomness:state.randomness, speed:state.speed, sourceRandomness:state.sourceRandomness, dropRadius:state.dropRadius };
     Object.entries(scalar).forEach(([k,v]) => gl.uniform1f(this.location(k),v));
     gl.uniform2f(this.location('resolution'),resolution,resolution);
     gl.uniform1i(this.location('shape'),SHAPES.indexOf(state.shape));
@@ -418,6 +458,7 @@ export class ChromatographyRenderer {
   }
 
   dispose() {
+    this.localFlow?.dispose();
     this.gl.deleteTexture(this.mask);
     this.gl.deleteTexture(this.source);
     this.gl.deleteBuffer(this.buffer);
