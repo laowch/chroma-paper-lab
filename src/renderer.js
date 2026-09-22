@@ -256,6 +256,11 @@ void main() {
     if(keepSource) {
       if(source.a>.00001) inkColor=source.rgb/source.a;
       if(carried.a>.00001) carrierColor=carried.rgb/carried.a;
+      vec4 retained=readSource(sourcePosition(p));
+      // Only excess wet coverage extends the source, without diluting or doubling its native alpha.
+      float bleed=max(0.,original-retained.a);
+      original=retained.a+bleed;
+      if(original>.00001) inkColor=(retained.rgb+inkColor*bleed)/original;
     }
   } else if(shape>=6) {
     original*=readMask(sourcePosition(p)).g;
