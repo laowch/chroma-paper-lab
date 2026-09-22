@@ -1,6 +1,8 @@
+export const PNG_SIZE = 4000;
+export const PNG_DPI = 500;
 const PNG_SIGNATURE = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10);
 
-function crc32(bytes) {
+export function crc32(bytes) {
   let crc = 0xffffffff;
   for (const byte of bytes) {
     crc ^= byte;
@@ -97,7 +99,7 @@ export function setPngDpi(bytes, dpi) {
 }
 
 /** Encode a canvas as a PNG carrying actual print-resolution metadata. */
-export async function canvasToPrintPng(canvas, { dpi = 300 } = {}) {
+export async function canvasToPrintPng(canvas, { dpi = PNG_DPI } = {}) {
   const blob = await new Promise((resolve, reject) => {
     canvas.toBlob((result) => {
       if (result) resolve(result);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
 import { deflateSync, inflateSync } from 'node:zlib';
 import {
-  canvasToPrintPng, downloadBlob, recordCanvasVideo, setPngDpi, supportsVideoExport,
+  canvasToPrintPng, downloadBlob, recordCanvasVideo, setPngDpi, supportsVideoExport, PNG_SIZE, PNG_DPI,
 } from './export.js';
 
 const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -157,14 +157,25 @@ test('canvasToPrintPng returns a PNG Blob with default or custom DPI', async () 
       callback(new Blob([png], { type }));
     },
   };
-  for (const options of [undefined, { dpi: 150 }]) {
+  for (const options of [undefined, { dpi: 150 }, { dpi: 500 }]) {
     const result = await canvasToPrintPng(canvas, options);
     assert.ok(result instanceof Blob);
     assert.equal(result.type, 'image/png');
     const bytes = new Uint8Array(await result.arrayBuffer());
-    assert.equal(physical(bytes).data.readUInt32BE(0), Math.round((options?.dpi ?? 300) / 0.0254));
+    assert.equal(physical(bytes).data.readUInt32BE(0), Math.round((options?.dpi ?? 500) / 0.0254));
     assert.deepEqual(parseChunks(bytes).find(({ type }) => type === 'IDAT').raw, idat);
   }
+});
+
+test('print export uses 4000 square pixels and valid 500 DPI metadata', () => {
+  assert.equal(PNG_SIZE,4000);
+  assert.equal(PNG_DPI,500);
+  const result=setPngDpi(png,PNG_DPI), metadata=physical(result);
+  assert.equal(metadata.data.readUInt32BE(0),19685);
+  assert.equal(metadata.data.readUInt32BE(4),19685);
+  assert.equal(metadata.data[8],1);
+  assert.equal(metadata.crc,checksum(metadata.raw.subarray(4,-4)));
+  assert.deepEqual(parseChunks(result).find(({type})=>type==='IDAT').raw,idat);
 });
 
 test('canvasToPrintPng rejects failed encoding and propagates canvas errors', async () => {

@@ -91,3 +91,10 @@ export function scrubState(state, fraction) {
   state.progress=fraction*1.22;
   state.drops.forEach(drop=>drop.age=fraction*22);
 }
+
+export function seekBloom(state, target, fraction) {
+  // Hold the chosen image for the final tenth of both playback and recording.
+  const progress=Math.max(0,Math.min(1,fraction/.9));
+  state.progress=target.progress*progress;
+  state.drops.forEach((drop,index)=>drop.age=target.drops[index].age*progress);
+}

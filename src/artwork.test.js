@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSeededMarks, drawMark, paintMask, scrubState, MAX_DROPS, DROP_PLACEMENTS, resolveDropPosition, addWaterDrop, removeWaterDrops } from './artwork.js';
+import { createSeededMarks, drawMark, paintMask, scrubState, seekBloom, MAX_DROPS, DROP_PLACEMENTS, resolveDropPosition, addWaterDrop, removeWaterDrops } from './artwork.js';
 import { initialState } from './presets.js';
 
 function contextSpy(side = 600) {
@@ -95,6 +95,32 @@ test('scrubState is deterministic and history-independent when seeking nonmonoto
     scrubState(state, fraction);
     assert.deepEqual(state, snapshot, 'seeking to the same fraction is idempotent');
   }
+});
+
+test('bloom playback ends on the chosen image and holds without extra diffusion', () => {
+  for (const progress of [0, .31, .88, 1.06, 1.22]) {
+    const target={...initialState(),progress,marks:createSeededMarks(2847),drops:[{x:.2,y:.7,age:3.125},{x:.8,y:.1,age:17.6},{x:.5,y:.5,age:0}]};
+    const original=structuredClone(target), frame=structuredClone(target);
+    for(const fraction of [0,.45,.9,1,2,.2,.9]) {
+      seekBloom(frame,target,fraction);
+      const factor=Math.min(1,fraction/.9);
+      assert.deepEqual(frame,{...target,progress:progress*factor,drops:target.drops.map(drop=>({...drop,age:drop.age*factor}))});
+      if(fraction>=.9)assert.deepEqual(frame,target);
+      assert.deepEqual(target,original);
+    }
+  }
+});
+
+test('dry and dropless blooms never invent water and keep all rendering settings', () => {
+  const target=initialState(), frame=structuredClone(target);
+  for(const fraction of [1,0,.5,.9]) {
+    seekBloom(frame,target,fraction);
+    assert.deepEqual(frame.drops,[]);
+    assert.deepEqual({...frame,progress:target.progress},target);
+  }
+  target.progress=0;
+  seekBloom(frame,target,1);
+  assert.deepEqual(frame,target);
 });
 
 test('drawMark scales circular geometry and chooses fill versus stroke', () => {

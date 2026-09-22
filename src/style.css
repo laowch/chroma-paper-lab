@@ -33,4 +33,6 @@
 .water-markers{position:absolute;inset:0;pointer-events:none}.water-marker{position:absolute;display:flex;align-items:center;justify-content:center;width:19px;height:19px;transform:translate(-50%,-50%);border:1px solid #a69ab7;border-radius:50%;background:#fffefaeb;color:#756184;font-size:10px;font-weight:550;font-variant-numeric:tabular-nums;box-shadow:0 1px 3px #51405e14;pointer-events:none}
 .artboard:not([data-tool=water]) .water-ring{display:none}
 @media(max-width:640px){.source-panel,.settings-panel{grid-template-columns:repeat(2,minmax(0,1fr))}.source-panel .panel-section{min-width:0}.ink-swatches{gap:5px}.ink-swatch{padding:4px}.ink-swatch-name{font-size:7px}.water-drops{padding:8px}.water-drops select{font-size:9px}.drop-coordinates{gap:5px}.drop-coordinates input{padding:7px 3px}}
+.document-actions{display:flex;gap:6px;flex-shrink:0}.studio-top{gap:10px}.document-title{min-width:0}.document-title>span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.document-actions .secondary{font-size:9px;padding:7px 8px;white-space:nowrap}
+@media(max-width:640px){.document-actions{gap:4px}.document-actions .secondary{font-size:8px;padding:6px}.document-title{gap:4px}.studio-top{padding:0 12px}}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition:none!important}}
