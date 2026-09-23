@@ -44,6 +44,11 @@ export function mixedInk(pigments) {
   return '#'+[1,3,5].map(channel=>Math.round(pigments.reduce((sum,p)=>sum+parseInt(p.color.slice(channel,channel+2),16),0)/pigments.length*.64).toString(16).padStart(2,'0')).join('');
 }
 
+export function updateCustomInk(state) {
+  state.inkIndex=-1;
+  if(!state.keepSource || state.shape==='import')state.ink=mixedInk(state.pigments);
+}
+
 export function variationSeeds(seed) {
   return Array.from({length:10},(_,i)=>1000+((seed-1000+(i+1)*7919)%9000+9000)%9000);
 }

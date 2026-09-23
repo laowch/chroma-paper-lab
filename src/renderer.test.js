@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ChromatographyRenderer, distanceTransform, hexToRgb, SHAPES } from './renderer.js';
 import {
   initialState, presetState, makePigments, PRESETS, INKS, MAX_PIGMENTS,
-  hexToHsl, hslToHex, mixedInk, variationSeeds,
+  hexToHsl, hslToHex, mixedInk, updateCustomInk, variationSeeds,
 } from './presets.js';
 
 test('distance transform measures axial and diagonal capillary distances', () => {
@@ -181,6 +181,49 @@ test('mixedInk produces valid darkened colors for one and six pigments without m
     assert.match(result, /^#[0-9a-f]{6}$/);
     assert.equal(result, expected);
     assert.equal(mixedInk([...pigments].reverse()), result);
+  }
+});
+
+test('pigment edits lock drawn ink, remix when unlocked, and always remix imported fallback ink in both models', () => {
+  const edits = [
+    ['lightness to black', pigments => { pigments[0].color = hslToHex({ ...hexToHsl(pigments[0].color), l: 0 }); }],
+    ['lightness to white', pigments => { pigments[0].color = hslToHex({ ...hexToHsl(pigments[0].color), l: 100 }); }],
+    ['HEX color', pigments => { pigments[0].color = '#1234ab'; }],
+    ['color picker', pigments => { pigments[0].color = '#e76521'; }],
+    ['add component', pigments => { pigments.push(makePigments([...pigments.map(p => p.color), '#00ffcc']).at(-1)); }],
+    ['remove component', pigments => { pigments.pop(); }],
+  ];
+  const source = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
+  for (const shape of SHAPES) {
+    for (const localFlow of [false, true]) {
+      const state = {
+        ...initialState(), shape, localFlow, ink: '#13579b',
+        mode: 'directional', direction: 225, amount: .73, progress: .4, seed: 7890,
+        layers: [false, true, false], offset: { x: .1, y: -.2 },
+        marks: [{ type: 'dot', x: .2, y: .3, radius: .07 }],
+        paths: [[{ x: .1, y: .2 }, { x: .4, y: .6 }]], drops: [{ x: .6, y: .7, age: 9 }],
+        imported: shape === 'import' ? source : null, importName: 'source.png', importScale: 1.4,
+      };
+      const checkUpdate = (expectedInk, label) => {
+        const before = structuredClone(state);
+        updateCustomInk(state);
+        assert.deepEqual(state, { ...before, ink: expectedInk, inkIndex: -1 }, label);
+      };
+      for (const keepSource of [true, false, true]) {
+        state.keepSource = keepSource;
+        const lockedInk = state.ink;
+        const preservesInk = keepSource && shape !== 'import';
+        const label = `${shape}, localFlow=${localFlow}, keepSource=${keepSource}`;
+        if (!keepSource && shape !== 'import') checkUpdate(mixedInk(state.pigments), `${label}: disable preservation`);
+        for (const [name, edit] of edits) {
+          const previousMix = mixedInk(state.pigments);
+          edit(state.pigments);
+          const nextMix = mixedInk(state.pigments);
+          assert.notEqual(nextMix, previousMix, `${label}: ${name} must change the pigment mixture`);
+          checkUpdate(preservesInk ? lockedInk : nextMix, `${label}: ${name}`);
+        }
+      }
+    }
   }
 });
 

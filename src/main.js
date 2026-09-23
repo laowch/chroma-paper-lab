@@ -1,7 +1,7 @@
 import './style.css';
 import { icon } from './icons.js';
 import { ChromatographyRenderer } from './renderer.js';
-import { initialState, INKS, PRESETS, presetState, makePigments, MAX_PIGMENTS, hexToHsl, hslToHex, mixedInk, variationSeeds } from './presets.js';
+import { initialState, INKS, PRESETS, presetState, makePigments, MAX_PIGMENTS, hexToHsl, hslToHex, updateCustomInk, variationSeeds } from './presets.js';
 import { canvasToPrintPng, downloadBlob, supportsVideoExport, recordCanvasVideo, PNG_SIZE, PNG_DPI } from './export.js';
 import { prepareImportedImage } from './import.js';
 import { paintMask, createSeededMarks, scrubState, seekBloom, MAX_DROPS, DROP_PLACEMENTS, resolveDropPosition, addWaterDrop, removeWaterDrops } from './artwork.js';
@@ -64,7 +64,8 @@ $('#app').innerHTML = `
           <div class="segmented" aria-label="Shape source"><button data-input-mode="draw" class="active">${icon('draw',12)} Create</button><button data-input-mode="import">${icon('upload',12)} Import</button></div>
           <div id="create-controls"><div class="shape-grid">${Object.entries(shapeLabels).map(([shape,label])=>`<button class="shape-button ${state.shape===shape?'active':''}" data-shape="${shape}" aria-label="${label} shape" aria-pressed="${state.shape===shape}" title="${label}">${icon(shape==='freehand'?'draw':shape,22)}<span>${label}</span></button>`).join('')}</div>
           <div class="text-field" id="text-controls" hidden><label for="text-input">A letter, a word, a symbol</label><input id="text-input" maxlength="16" value="a" aria-label="Text or symbol" /></div><p class="draw-hint" id="draw-hint" hidden>Draw directly on the paper. Each stroke becomes a pigment sample.</p></div>
-          <div id="import-controls" hidden><div class="upload-zone" id="upload-zone" role="button" tabindex="0" aria-label="Import an SVG or bitmap">${icon('upload',24)}<strong>Bring your own mark</strong><p>Drop an SVG, PNG, JPG or WebP<br/>or click to browse · up to 10 MB</p></div><div id="import-name" class="import-name"></div><label class="checkbox-control"><input id="keep-source" type="checkbox" checked /> Preserve source colors</label></div>
+          <div id="import-controls" hidden><div class="upload-zone" id="upload-zone" role="button" tabindex="0" aria-label="Import an SVG or bitmap">${icon('upload',24)}<strong>Bring your own mark</strong><p>Drop an SVG, PNG, JPG or WebP<br/>or click to browse · up to 10 MB</p></div><div id="import-name" class="import-name"></div></div>
+          <label class="checkbox-control"><input id="keep-source" type="checkbox" aria-describedby="keep-source-help" checked /> Preserve source colors</label><p class="drop-help" id="keep-source-help"></p>
           ${rangeControl('Size','size',150,1600,10,'px')}${rangeControl('Stroke weight','stroke',5,160,1,'px')}<div id="import-scale-control" hidden>${rangeControl('Import scale','importScale',.25,2,.01,'%')}</div><div class="action-grid"><button class="secondary" data-tool="stamp">${icon('plus',12)} Draw shapes</button><button class="secondary" data-action="clear">Clear paper</button><button class="secondary wide" data-action="compose">${icon('shuffle',12)} Generate composition</button></div>
         </section>
         <section class="panel-section"><div class="section-heading"><span><span class="number">02</span> A drop of ink</span>${icon('drop',13)}</div><div class="ink-swatches" role="group" aria-label="Ink palettes">${INKS.map((ink,i)=>`<button class="ink-swatch ${i===state.inkIndex?'active':''}" data-ink="${i}" aria-label="${ink.name}: ${ink.pigments.join(', ')}" aria-pressed="${i===state.inkIndex}" title="${ink.name} · ${ink.pigments.join(' / ')}"><span class="ink-preview" aria-hidden="true">${ink.pigments.map(color=>`<span style="background:${color}"></span>`).join('')}</span><span class="ink-swatch-name">${ink.name}</span></button>`).join('')}</div><div class="ink-caption"><span id="ink-name">Carbon black</span><span id="ink-hex">#282925</span></div><div class="active-pigments" id="active-pigments" role="img" aria-label="Active pigment colors"></div><p class="ink-note">${icon('spark',12)}<span>One ink. A hidden world of colors.<br/>Mix between 1 and 6 pigment components.</span></p></section>
@@ -194,6 +195,9 @@ function sync() {
   $('#direction-controls').hidden=state.mode!=='directional';
   $('.direction-dial').style.setProperty('--direction',`${state.direction+45}deg`);
   $('#keep-source').checked=state.keepSource;
+  $('#keep-source-help').textContent=state.shape==='import'
+    ? 'Keeps imported colors. Original density still controls blending.'
+    : 'Locks drawn ink during pigment edits. Palettes and presets set a new ink color; Original density still controls blending.';
   $('#control-stroke').disabled=!['line','ring','arc','freehand'].includes(brushShape);
   $('#import-scale-control').hidden=state.shape!=='import';
   $('#control-importScale').disabled=state.shape!=='import';
@@ -256,7 +260,7 @@ function setBusy(value) {
   $$('.header button').forEach(button=>button.disabled=value||!renderer);
   $$('[data-export]').forEach(button=>button.disabled=value||!renderer||(button.dataset.export==='video'&&!supportsVideoExport()));
 }
-function customInk() {state.inkIndex=-1;state.ink=mixedInk(state.pigments);selectedPreset=-1;}
+function customInk() {updateCustomInk(state);selectedPreset=-1;}
 function toast(message) {
   clearTimeout(toastTimer);
   $('.toast').textContent=message;
@@ -514,7 +518,11 @@ $$('[data-layer]').forEach(button=>button.addEventListener('click',()=>change(()
 $$('[data-preset]').forEach(button=>button.addEventListener('click',()=>applyPreset(Number(button.dataset.preset))));
 $('#text-input').addEventListener('focus',record);
 $('#text-input').addEventListener('input',event=>{state.text=event.target.value;updateMask();requestRender();});
-$('#keep-source').addEventListener('change',event=>change(()=>state.keepSource=event.target.checked));
+$('#keep-source').addEventListener('change',event=>change(()=>{
+  state.keepSource=event.target.checked;
+  if(!state.keepSource && state.shape!=='import')customInk();
+  selectedPreset=-1;
+}));
 $$('[data-close]').forEach(button=>button.addEventListener('click',closeDialogs));
 $$('dialog').forEach(dialog=>dialog.addEventListener('click',event=>{if(event.target===dialog){const rect=dialog.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)dialog.close();}}));
 $$('[data-nav]').forEach(button=>button.addEventListener('click',()=>{

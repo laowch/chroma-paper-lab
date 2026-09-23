@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_EXPERIMENT_BYTES, serializeExperiment, parseExperiment } from './experiment.js';
-import { initialState, presetState, INKS, PRESETS, makePigments } from './presets.js';
+import { initialState, presetState, INKS, PRESETS, makePigments, hexToHsl, hslToHex, mixedInk, updateCustomInk } from './presets.js';
 import { createSeededMarks, DROP_PLACEMENTS } from './artwork.js';
 import { crc32 } from './export.js';
 
@@ -127,6 +127,46 @@ test('edited six-pigment import preserves every setting, mark, path, color and i
   assert.equal(restored.state.imported, PNG);
   assert.equal(Object.hasOwn(restored.state.marks.at(-1), 'text'), false);
   assert.deepEqual(Object.keys(restored.state).sort(), Object.keys(initialState()).sort());
+});
+
+test('independent ink and pigments survive saving and continued edits for marks and imports in both models', () => {
+  const edits = [
+    ['lightness', pigments => { pigments[0].color = hslToHex({ ...hexToHsl(pigments[0].color), l: 92 }); }],
+    ['remove component', pigments => { pigments.pop(); }],
+    ['add component', pigments => { pigments.push(makePigments([...pigments.map(p => p.color), '#00ffcc']).at(-1)); }],
+  ];
+  for (const shape of ['line', 'dot', 'composition', 'import']) {
+    for (const localFlow of [false, true]) {
+      for (const keepSource of [false, true]) {
+        const saved = editedSnapshot();
+        saved.inputMode = shape === 'import' ? 'import' : 'draw';
+        saved.brushShape = shape === 'dot' ? 'dot' : 'line';
+        Object.assign(saved.state, {
+          shape, localFlow, keepSource, generated: shape === 'composition',
+          marks: shape === 'composition' ? createSeededMarks(4713) : shape === 'import' ? [] : [drawnMark(shape)],
+        });
+        assert.notEqual(saved.state.ink.toLowerCase(), mixedInk(saved.state.pigments));
+        const text = serializeExperiment(deepFreeze(saved));
+        const restored = parseExperiment(text);
+        const label = `${shape}, localFlow=${localFlow}, keepSource=${keepSource}`;
+        assert.deepEqual(restored, saved, `${label}: independent colors and all settings round trip`);
+        for (const [name, edit] of edits) {
+          const previousMix = mixedInk(restored.state.pigments);
+          edit(restored.state.pigments);
+          const nextMix = mixedInk(restored.state.pigments);
+          assert.notEqual(nextMix, previousMix, `${label}: ${name} changes the mixture`);
+          const before = structuredClone(restored);
+          updateCustomInk(restored.state);
+          assert.deepEqual(restored, {
+            ...before,
+            state: { ...before.state, inkIndex: -1, ink: keepSource && shape !== 'import' ? saved.state.ink : nextMix },
+          }, `${label}: ${name} leaves source data, marks and other settings intact`);
+        }
+        assert.deepEqual(parseExperiment(text), saved, `${label}: the saved snapshot stays independent`);
+        assert.deepEqual(parseExperiment(serializeExperiment(restored)), restored, `${label}: edited colors remain saveable`);
+      }
+    }
+  }
 });
 
 test('legacy effects without local flow keep the original model and all other settings', () => {
